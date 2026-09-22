@@ -203,6 +203,7 @@ tasks:
     # nothing at all. The gate names what is accepted and why, so anything new
     # still stops the build. The accepted list is currently empty, on purpose.
     cmds:
+      - scripts/agents-core-check.sh
       - 'scripts/tools.sh --check'
       - 'PATH="$PWD/tmp/bin:$PATH" scripts/govulncheck-gate.sh'
 
