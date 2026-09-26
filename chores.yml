@@ -84,14 +84,25 @@ chore_min_version: 0.6.0
 #
 #   A test task prints a VERDICT — one line naming the log — not a transcript.
 #   Nothing is thrown away: the whole run goes to tmp/logs/<tier>.log, a
-#   failure prints the tail of it, and `chore test -- --verbose` (or
-#   FLTH_VERBOSE=1) streams the lot as it happens.
+#   failure names that log and the status the command exited with, and
+#   `chore test -- --verbose` (or OUTPUT_BUDGET_VERBOSE=1) streams the lot as
+#   it happens. `OUTPUT_BUDGET_FAIL_TAIL=40` puts the tail of the log back on
+#   a failure, for a person at a terminal who would rather not open it.
+#
+#   THE VARIABLES WERE FLTH_VERBOSE AND FLTH_FAIL_TAIL. They are
+#   OUTPUT_BUDGET_VERBOSE and OUTPUT_BUDGET_FAIL_TAIL now — the names moved
+#   with the script when rust-fs-core took ownership of it. The rename fails
+#   silently wherever it was missed (nothing errors; --verbose simply stops
+#   working), so scripts/tier.sh carries the mapping in a comment block for
+#   whoever greps for the old name.
 #
 #   Each tier carries an OUTPUT BUDGET: a line and a byte count that fails the
 #   run with status 65 when the tier prints more than it is allowed to — told
-#   apart from a failing suite by that status. scripts/tier.sh applies it;
-#   scripts/output-budget.sh is the harness's, vendored (this repository is not
-#   a harness consumer and has no sibling pin to fetch it with).
+#   apart from a failing suite by that status. scripts/tier.sh applies it, and
+#   the script that does the work is rust-fs-core's scripts/output-budget.sh,
+#   resolved at RUN TIME from the pinned sibling `chore siblings` maintains.
+#   THERE IS NO COPY OF IT IN THIS REPOSITORY, deliberately: there was one,
+#   vendored, and a copy nothing compares is a copy that drifts.
 #
 #     tier      measured            budget           headroom, and why
 #     deps       0-200 / 0-25,000    400 /  40,000   cold-cache downloads, so
@@ -117,6 +128,10 @@ chore_min_version: 0.6.0
 #                                                    each. That is 80% of this
 #                                                    tier and it is go test's
 #                                                    doing, not ours
+#     scripts      17 /     764       30 /   1,600   one guard, thirteen checks
+#                                                    and two verdicts; a second
+#                                                    guard is about ten more
+#                                                    lines
 #     docker        8 /     423       20 /   2,000   six server lines and two
 #                                                    verdicts. It was 167 lines
 #                                                    until the image pulls were
@@ -132,6 +147,7 @@ chore_min_version: 0.6.0
 #                                                    nine lines. Measure it
 #                                                    properly when a job does
 #
+#   `scripts` was measured on an arm64 Linux host on 2026-09-26.
 #   `native`, `suite` and `docker` were measured in CI — `native` on both
 #   platforms, with the budget set from the louder one; `unit`, `smb` and `s3`
 #   on an arm64 Linux host. Raise one DELIBERATELY when a tier grows. A budget
@@ -153,8 +169,106 @@ vars:
   # cannot range over a variable.
   DRIVERS: ftp sftp smb dropbox webdav gdrive s3 onedrive
 
+  # THE ONE SIBLING THIS REPOSITORY HAS, and the only reason it has one: the
+  # canonical output-budget wrapper lives in rust-fs-core and is not copied
+  # here. A full URL rather than a repo name, because this family spans two
+  # GitHub organisations and a URL rebuilt from a name points at a repository
+  # that does not exist for exactly the ones that are not in the org you
+  # guessed.
+  FS_CORE_URL: https://github.com/antimatter-studios/rust-fs-core.git
+  # v0.2.13 is the first release whose scripts/output-budget.sh answers
+  # `--version` with the API string scripts/resolve-output-budget.sh checks
+  # for, and the first in which a failing tier names its log instead of
+  # reading it aloud. This pin cannot go below it while the tiers read the
+  # wrapper from core; the same floor is written in the resolver, which is
+  # what prints it when a checkout is too old.
+  FS_CORE_REF: v0.2.13
+
 tasks:
   # ---------------------------------------------------------------- host tools
+
+  siblings:
+    desc: "Clone or update the pinned rust-fs-core checkout the test tiers read their output-budget wrapper from"
+    # WHY THERE IS A SIBLING AT ALL. scripts/output-budget.sh used to be
+    # committed here, vendored from fs-linux-test-harness, with a comment
+    # asking whoever changed one copy to remember the other. Nothing checked,
+    # and the family ended up with three copies reached four ways. The wrapper
+    # belongs to rust-fs-core now and is resolved at run time from this
+    # checkout — see scripts/resolve-output-budget.sh, which refuses loudly
+    # rather than falling back to anything local.
+    #
+    # The Rust drivers get the same file from cargo, which has already
+    # resolved am-fs-core for them. A Go module has no such answer, so a
+    # checkout is what there is.
+    cmds:
+      - |
+        set -eu
+        name=rust-fs-core
+        url='{{.FS_CORE_URL}}'
+        ref='{{.FS_CORE_REF}}'
+
+        # SIBLINGS LIVE BESIDE THE MAIN TREE, NOT BESIDE THIS CHECKOUT.
+        #
+        # `../$name` is resolved from wherever the task ran, and a worktree is
+        # not next to the main checkout — it lives wherever its author put it.
+        # Measured across this family on 2026-09-22, ../rust-fs-core resolved
+        # to THREE different directories on one machine, one of them a day
+        # stale and winning silently for everything that resolved relatively.
+        #
+        # A sibling set is a property of the MACHINE, not of a checkout: one
+        # copy on disk is the whole point of siblings over submodules, and it
+        # holds only while every checkout agrees where that copy is.
+        # --git-common-dir names the main tree from a worktree and from the
+        # main checkout alike. --path-format=absolute is required rather than
+        # tidy: without it a main checkout reports a bare `.git` and this
+        # resolves to `//rust-fs-core`.
+        common="$(git rev-parse --path-format=absolute --git-common-dir)"
+        siblings_root="$(cd "$common/../.." && pwd)"
+        dir="$siblings_root/$name"
+
+        if [ ! -d "$dir/.git" ]; then
+          echo "siblings: cloning $name at $ref into $dir"
+          git init --quiet "$dir"
+          git -C "$dir" remote add origin "$url"
+          git -C "$dir" fetch --quiet origin "$ref"   # not --depth 1: merge-base needs history
+          git -C "$dir" checkout --quiet FETCH_HEAD
+          exit 0
+        fi
+
+        if [ -n "$(git -C "$dir" status --porcelain)" ]; then
+          echo "siblings: $name has uncommitted changes — refusing to move it." >&2
+          exit 1
+        fi
+
+        git -C "$dir" fetch --quiet origin main "$ref"
+
+        # THE PIN IS A FLOOR, NOT A TARGET, AND THE SIBLING STAYS ON A BRANCH.
+        #
+        # Comparing HEAD with the pinned ref and checking the ref out whenever
+        # they differ has two consequences, both observed in this family. It
+        # moves the checkout BACKWARDS — one copy of core is shared by every
+        # project on the machine, so the oldest pin anywhere wins and a sibling
+        # two commits ahead is silently rewound to satisfy this one. And
+        # checking out a tag DETACHES: core was found detached and 52 commits
+        # stale four days after a run put it there, because a detached HEAD
+        # reads as a deliberate state and nothing complains about it.
+        #
+        # So: guarantee a FLOOR, and never move anybody off their branch. A
+        # checkout that already contains the pinned ref is left exactly as it
+        # is. Only one genuinely below the floor is moved, and only by
+        # fast-forwarding a main that is already checked out. Anything else is
+        # reported for a human, because this is one checkout shared by every
+        # project here and not this task's to hijack.
+        current="$(git -C "$dir" rev-parse --abbrev-ref HEAD)"
+        if git -C "$dir" merge-base --is-ancestor "$ref" HEAD; then
+          echo "siblings: $name at or ahead of $ref (on $current)"
+        elif [ "$current" = "main" ] && git -C "$dir" merge --ff-only --quiet origin/main 2>/dev/null; then
+          echo "siblings: $name fast-forwarded to $(git -C "$dir" rev-parse --short HEAD)"
+        else
+          echo "siblings: $name is on '$current' and below $ref; this task will not move it." >&2
+          echo "          It is one checkout shared by every project here — move it yourself." >&2
+          exit 1
+        fi
 
   tools:
     desc: "Install and verify what the HOST needs, pinned: golangci-lint and govulncheck, into tmp/bin"
@@ -214,6 +328,22 @@ tasks:
       - task: deps:verify
 
   # --------------------------------------------------------------------- tests
+
+  test:scripts:
+    desc: "The shell guards in scripts/tests — the contracts no Go test can reach"
+    # WHAT A GO TEST CANNOT REACH. scripts/tier.sh's refusals are the reason
+    # this task exists: the wrapper it runs the suite through belongs to
+    # rust-fs-core and is resolved at run time, so "the sibling is missing" and
+    # "the sibling holds something else" are real, reachable states of this
+    # repository that no Go test can put it into. The guard drives both through
+    # FS_CORE_ROOT and proves the tier contract itself — a quiet pass, the
+    # command's own exit status, and 65 for a breached budget.
+    #
+    # It is NOT wired into test:native or test:ci, deliberately: those two run
+    # inside scripts/tier.sh already, and a guard that drives tier.sh from
+    # inside a tier is three deep for no gain. CI runs it as its own step.
+    cmds:
+      - 'scripts/tier.sh test:scripts scripts 30 1600 -- scripts/tests/run-all.sh'
 
   test:unit:
     desc: "The tests that need no server and no container — what runs anywhere, on anything"

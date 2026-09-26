@@ -23,6 +23,14 @@ name: CI
 # on the default branch. Renaming one here without changing that file strands
 # every merge.
 #
+# THE TIERS NEED A SIBLING. scripts/tier.sh runs the suite through
+# rust-fs-core's scripts/output-budget.sh, which is NOT committed here: a
+# copy that nothing compares is a copy that drifts, and this family had three
+# of them. `chore siblings` clones the pinned ref (chores.yml's FS_CORE_REF)
+# beside the checkout, so every job that runs a tier calls it first and no job
+# that does not runs it at all. It is one `git fetch` of a small public
+# repository; there is no token and no cross-org secret in it.
+#
 # THE OUTPUT BUDGET IS IN THE TASKS, so it is in this workflow too. Each tier
 # writes its full output to tmp/logs/<tier>.log and prints a verdict; a tier
 # that prints more than its measured budget FAILS with status 65, which is how
@@ -68,8 +76,21 @@ jobs:
       - name: chore vet
         run: chore vet
 
+      # The pinned rust-fs-core beside this checkout: `chore test:native` and
+      # `chore test:scripts` both go through scripts/tier.sh, which reads the
+      # output-budget wrapper from it and refuses when it is not there.
+      - name: chore siblings
+        run: chore siblings
+
+      # BOTH platforms, because the resolver is the thing being proved and its
+      # two refusals are shell, where the platforms differ: macOS runners ship
+      # bash 3.2. A guard that only ever ran on ubuntu would be a guard that
+      # had never met half the machines this repository is developed on.
+      - name: chore test:scripts
+        run: chore test:scripts
+
       # Quiet: one verdict line naming tmp/logs/native.log, which is uploaded
-      # below. A failure prints the tail of it here.
+      # below. A failure names that log, which is in the artifact.
       - name: chore test:native
         run: chore test:native
 
@@ -103,6 +124,13 @@ jobs:
       # name, the same as the other five. Every image is pinned.
       - name: install chore
         run: scripts/ci-install-chore.sh
+
+      # Resolved on the runner and bind-mounted into the container by
+      # scripts/docker-suite.sh: inside it only this checkout exists, so
+      # ../rust-fs-core is a path that never resolves and FS_CORE_ROOT is how
+      # the inner tier is told where it went.
+      - name: chore siblings
+        run: chore siblings
 
       - name: chore test
         run: chore test
