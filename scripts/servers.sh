@@ -33,8 +33,10 @@
 # with a host-shaped default and the runner overrides it (scripts/docker-suite.sh).
 #
 # QUIET. `docker build` is the loud part, so it is built with -q and its output
-# kept for --verbose (FLTH_VERBOSE=1). Container ids go nowhere: a line naming
-# the server and where it is listening is the useful verdict.
+# kept for --verbose (OUTPUT_BUDGET_VERBOSE=1 — it was FLTH_VERBOSE until the
+# wrapper moved to rust-fs-core; see scripts/tier.sh). Container ids go
+# nowhere: a line naming the server and where it is listening is the useful
+# verdict.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,7 +53,7 @@ KNOWN_SERVERS="$ALL_SERVERS s3-native"
 # shellcheck source=scripts/test-env.sh
 . "$REPO/scripts/test-env.sh"
 
-VERBOSE="${FLTH_VERBOSE:-0}"
+VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}"
 
 die() { echo "servers.sh: $*" >&2; exit 1; }
 

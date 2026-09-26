@@ -135,9 +135,12 @@ it**. Do not silence output to fit, and do not route around `tier.sh`.
 This repository is **Go**, not Rust, and it speaks network protocols rather than
 on-disk formats. Two clauses above need translating:
 
-- **"Output is budgeted"** names `scripts/tier.sh`, which does not exist here.
-  The same intent is served by the `chore test*` tasks and the `::group::`
-  framing in `ci.yml`. If a suite starts printing a transcript, fix it here.
+- **"Output is budgeted"** names `scripts/tier.sh`, and that file does exist
+  here — every `chore test*` task goes through it. What it does NOT contain is
+  the wrapper: `scripts/output-budget.sh` belongs to `rust-fs-core` and is
+  resolved at run time from the pinned sibling `chore siblings` maintains, so
+  there is nothing to keep in step and nothing to drift. The refusal paths are
+  executed by `chore test:scripts`, not merely described.
 - **"Validate against something that is not us"** is served by real servers, not
   by a kernel: `chore serversup` brings up containerised SMB, FTP and S3
   endpoints, and the drivers are exercised against those rather than against a
@@ -152,16 +155,18 @@ The network filesystem drivers — SMB, FTP, S3 — built as static archives
 ## Running tests
 
 ```sh
+chore siblings        # the pinned rust-fs-core the tiers need; run this first
 chore test            # what CI runs
-chore testunit        # no servers
-chore testintegration # against the containerised servers
-chore testsmb         # one driver
-chore tests3
-chore testcabi        # the C ABI surface
+chore test:unit       # no servers
+chore test:integration # against the containerised servers
+chore test:smb        # one driver
+chore test:s3
+chore test:cabi       # the C ABI surface
+chore test:scripts    # the shell guards in scripts/tests
 chore lint            # golangci-lint
 chore vulncheck       # govulncheck
-chore serversup       # bring the test servers up
-chore serversdown
+chore servers:up      # bring the test servers up
+chore servers:down
 ```
 
 CI runs `test`, `integration`, `lint`, `vulncheck` and `build-archives`.

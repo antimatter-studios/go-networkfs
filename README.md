@@ -282,7 +282,9 @@ chore --list
 | `chore test:s3` | The S3 driver against a throwaway [stupid-simple-s3][sss3] — the pinned binary, so **no Docker**. |
 | `chore test:cabi` | The C ABI harnesses (C programs linking the shipped archives) against real servers. |
 | `chore servers:up`, `servers:down`, `servers:status`, `servers:env` | The test servers by hand: `chore servers:up -- samba` for one, no arguments for all six, `-- s3-native` for the daemonless S3 server. |
+| `chore test:scripts` | The shell guards in `scripts/tests` — the output-budget resolver's refusals and the tier contract. |
 | `chore lint`, `chore vet`, `chore vulncheck` | The gates, exactly as CI runs them. |
+| `chore siblings` | Clone or update the pinned `rust-fs-core` checkout the tiers read their output-budget wrapper from. |
 | `chore tools` | Install the pinned golangci-lint and govulncheck into `tmp/bin`. |
 | `chore tidy`, `chore deps`, `chore deps:verify` | Module housekeeping. |
 | `chore archives` | The nine c-archives (darwin, for the macOS consumer) into `dist/`; `chore artifact` prints that directory. |
@@ -294,11 +296,27 @@ chore --list
 
 **Output is quiet by default.** A test task prints one verdict line and
 the path of the log holding the whole run (`tmp/logs/<tier>.log`); a
-failure prints the tail of that log. `chore test -- --verbose` (or
-`FLTH_VERBOSE=1`) streams everything as it happens. Each tier also
-carries an output budget — a run that passes but prints more than its
-measured budget fails with status 65 — and the measured table is at the
-top of [chores.yml](chores.yml).
+failure prints one line naming that log and the status the command
+exited with, and `OUTPUT_BUDGET_FAIL_TAIL=40` puts the tail of the log
+back for a person at a terminal. `chore test -- --verbose` (or
+`OUTPUT_BUDGET_VERBOSE=1`) streams everything as it happens. Each tier
+also carries an output budget — a run that passes but prints more than
+its measured budget fails with status 65 — and the measured table is at
+the top of [chores.yml](chores.yml).
+
+The wrapper that does this is **`rust-fs-core`'s**
+`scripts/output-budget.sh`, and there is **no copy of it in this
+repository**. `scripts/tier.sh` resolves it at run time from a pinned
+sibling checkout of [rust-fs-core][core] — `chore siblings` clones or
+updates one, beside the main checkout — copies it into `tmp/` for the
+run and deletes the copy afterwards. A missing or unrecognised sibling
+fails the tier and prints the path it looked at, the minimum core
+version and the command that fixes it; it never falls back to anything
+local, because a fallback is how a repository runs last month's wrapper
+for a month without noticing. `scripts/tests/output-budget-resolver.sh`
+(`chore test:scripts`) drives both refusals and the tier contract.
+
+[core]: https://github.com/antimatter-studios/rust-fs-core
 
 `chore archives` produces:
 

@@ -17,6 +17,19 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
+# THE SIBLING IS MOUNTED, BECAUSE ../rust-fs-core DOES NOT EXIST IN THERE.
+#
+# The container runs `chore test:ci`, which runs scripts/tier.sh, which needs
+# rust-fs-core's output-budget.sh. Only this checkout is mounted, so the
+# sibling beside it is not there and the relative path resolves to /rust-fs-core
+# — a directory that has never existed in any of these images. Resolve it out
+# here, where it does exist, and hand the container the answer: FS_CORE_ROOT is
+# authoritative, so the inner tier looks exactly where it is told and nowhere
+# else. Read-only, because the suite has no business writing to a checkout
+# every other project on the machine shares.
+CORE_BUDGET="$("$REPO/scripts/resolve-output-budget.sh")"
+CORE_ROOT="$(cd "$(dirname "$CORE_BUDGET")/.." && pwd)"
+
 # shellcheck source=scripts/test-env.sh
 . "$REPO/scripts/test-env.sh"
 
@@ -31,7 +44,7 @@ scripts/servers.sh up
 # Built from the repository root, not from the Dockerfile's directory: the
 # image copies scripts/ci-install-chore.sh so that how chore is pinned and
 # checksummed is written down once. .dockerignore keeps the context small.
-if [ "${FLTH_VERBOSE:-0}" = 1 ]; then
+if [ "${OUTPUT_BUDGET_VERBOSE:-0}" = 1 ]; then
     docker build -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile .
 else
     docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . >/dev/null
@@ -52,5 +65,6 @@ docker run --rm --network "$TEST_NETWORK" \
     -e SFTP_ADDR=sftp    -e SFTP_PORT=22 \
     -e DAV_ADDR=webdav   -e DAV_PORT=80 \
     -e MOCK_ADDR=mockapi -e MOCK_PORT=8081 \
-    -e FLTH_VERBOSE="${FLTH_VERBOSE:-0}" \
+    -e OUTPUT_BUDGET_VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}" \
+    -v "$CORE_ROOT":/fs-core:ro -e FS_CORE_ROOT=/fs-core \
     "$RUNNER_IMAGE" chore test:ci
