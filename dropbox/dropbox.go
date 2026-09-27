@@ -3,7 +3,7 @@
 // This package implements the api.Driver interface for Dropbox cloud
 // storage via the Dropbox HTTP API.
 //
-// Migrated from diskjockey-backend/disktypes/dropbox.go
+// Migrated from an earlier Go backend (dropbox.go).
 
 package dropbox
 

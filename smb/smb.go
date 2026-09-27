@@ -3,7 +3,7 @@
 // This package implements the api.Driver interface for SMB/CIFS
 // network shares. It provides read/write access to remote SMB servers.
 //
-// Migrated from diskjockey-backend/disktypes/smb.go
+// Migrated from an earlier Go backend (smb.go).
 
 package smb
 

@@ -3,7 +3,7 @@
 // This package implements the api.Driver interface for FTP/FTPS
 // connections. It provides read/write access to remote FTP servers.
 //
-// Migrated from diskjockey-backend/disktypes/ftp.go
+// Migrated from an earlier Go backend (ftp.go).
 
 package ftp
 

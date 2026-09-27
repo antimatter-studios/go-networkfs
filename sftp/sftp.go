@@ -4,7 +4,7 @@
 // connections over SSH. It provides read/write access to remote
 // SFTP servers.
 //
-// Migrated from diskjockey-backend/disktypes/sftp.go
+// Migrated from an earlier Go backend (sftp.go).
 
 package sftp
 

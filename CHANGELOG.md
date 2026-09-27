@@ -112,7 +112,7 @@ Bootstrap commit of the module structure:
 
 - `pkg/api` — Driver interface, FileInfo, error sentinels, MountManager.
 - `pkg/api/cgo` — C bridge helpers (initial draft, pre-refactor).
-- `ftp/` — FTP driver skeleton migrated from diskjockey-backend.
+- `ftp/` — FTP driver skeleton migrated from an earlier Go backend.
 - `ftp/cmd/ftp/main.go` — first cgo wrapper draft.
 - `sftp/`, `smb/`, `dropbox/`, `webdav/` — stubs that register with
   the driver registry and return "not implemented" for every method.
