@@ -1,7 +1,7 @@
 # go-networkfs — Roadmap
 
 A prioritised plan for making this library actually useful as the backing
-layer for DiskJockey and any other consumer that wants "one API, N remote
+layer for any consumer that wants "one API, N remote
 filesystems." Effort is a rough guide: **S** ≤ 1 day, **M** 1–3 days,
 **L** 1 week+.
 
@@ -187,7 +187,7 @@ type Secret interface { Reveal() string; Zero() }
 ```
 
 Drivers take `Secret` instead of plain strings; in-memory implementation
-wipes the bytes on `Zero`. For host apps (DiskJockey), wire up Keychain
+wipes the bytes on `Zero`. For host apps, wire up Keychain
 (macOS) / Keystore (Android) / DPAPI (Windows) implementations.
 
 ### 17. SMB3 encryption / SSH strict host-key checking · S
@@ -272,8 +272,8 @@ A short `docs/DRIVERS.md` covering:
 ## P5 — platform packaging
 
 ### 24. Release workflow producing per-platform archives · M
-The DiskJockey integration vendors this repo and builds the archives in
-its own Xcode step. That's fine for one consumer; the second consumer
+The first consuming application vendors this repo and builds the archives
+in its own Xcode step. That's fine for one consumer; the second consumer
 will want prebuilt artefacts. A tag-triggered GitHub Actions job:
 
 - `macOS-13` / `macOS-14` runners: build `libftp.a` etc. for
@@ -369,4 +369,4 @@ If I had to pick one thing to do each week:
 6. Week 6 — release workflow (P5 §24).
 
 After that the priorities are driven by whatever the first real
-consumer (DiskJockey) hits first.
+consumer hits first.

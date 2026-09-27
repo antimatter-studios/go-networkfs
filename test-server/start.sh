@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Starting DiskJockey test services..."
+echo "Starting go-networkfs test services..."
 
 # Start SFTP (SSH)
 /usr/sbin/sshd -D &

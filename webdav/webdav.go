@@ -4,7 +4,7 @@
 // connections. It provides read/write access to remote WebDAV servers
 // using the github.com/studio-b12/gowebdav client library.
 //
-// Migrated from diskjockey-backend/disktypes/webdav.go
+// Migrated from an earlier Go backend (webdav.go).
 //
 // Defensive panic-recover blocks are intentionally preserved on every
 // interface method because the upstream gowebdav library has a history

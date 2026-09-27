@@ -159,8 +159,8 @@ chore_min_version: 0.6.0
 #   transcript on every step and so pays for one loud run many times over.
 vars:
   # THE DRIVER LIST LIVES HERE, and it used to live in three places: the
-  # Makefile (ARCHIVES), this file, and the default in diskjockey's
-  # build-gonetworkfs.sh. Three lists that had to agree and nothing that
+  # Makefile (ARCHIVES), this file, and the default in a consumer's
+  # build script. Three lists that had to agree and nothing that
   # checked them. The Makefile's copy went with the Makefile; the other one
   # that is left is scripts/test-env.sh's DRIVERS, which the C harness reads,
   # and the last command of `archives` fails if the two disagree.

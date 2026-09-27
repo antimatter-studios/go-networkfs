@@ -2,7 +2,7 @@
 //
 // Every test elsewhere in this repository calls the Go code from Go. Nothing
 // exercised the artifact that actually ships: the archive, its generated
-// header, and the C entry points diskjockey links against. This does, by being
+// header, and the C entry points a consumer links against. This does, by being
 // an ordinary C program that includes the header and links the archive.
 //
 // It reaches three functions no Go test can. networkfs_openfile,
@@ -263,7 +263,7 @@ static void test_mkdir_and_rename(void) {
 
 // The ABI's contract is that the caller frees what it is given. Doing that a
 // few thousand times is what turns a leak or a double free into a crash or an
-// ASan report rather than something diskjockey meets in production.
+// ASan report rather than something a consumer meets in production.
 static void test_free_contract_under_repetition(void) {
     for (int i = 0; i < 2000; i++) {
         char *v = networkfs_version();

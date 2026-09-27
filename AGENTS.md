@@ -1,6 +1,6 @@
 # Working in go-networkfs (agent guide)
 
-The Go network filesystem drivers — SMB, FTP and S3 — built as static archives the diskjockey app links. This file is the fast path
+The Go network filesystem drivers — SMB, FTP and S3 — built as static archives an application links. This file is the fast path
 for an agent picking up work here, so the workflow does not have to be
 re-derived each time. It points at the existing docs rather than duplicating
 them:
@@ -168,7 +168,7 @@ on-disk formats. Two clauses above need translating:
 ## What this is
 
 The network filesystem drivers — SMB, FTP, S3 — built as static archives
-(`chore archives`) that the diskjockey app links, plus a C ABI
+(`chore archives`) that an application links, plus a C ABI
 (`chore testcabi`) and a TUI (`chore tui`).
 
 ## Running tests
