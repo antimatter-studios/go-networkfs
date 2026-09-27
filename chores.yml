@@ -226,7 +226,9 @@ tasks:
         siblings_root="$(cd "$common/../.." && pwd)"
         dir="$siblings_root/$name"
 
-        if [ ! -d "$dir/.git" ]; then
+        # -e, not -d: a worktree's .git is a FILE naming its gitdir, and every
+        # working copy here is a worktree, a pinned sibling included.
+        if [ ! -e "$dir/.git" ]; then
           echo "siblings: cloning $name at $ref into $dir"
           git init --quiet "$dir"
           git -C "$dir" remote add origin "$url"
