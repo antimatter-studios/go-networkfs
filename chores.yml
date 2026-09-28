@@ -128,10 +128,27 @@ chore_min_version: 0.6.0
 #                                                    each. That is 80% of this
 #                                                    tier and it is go test's
 #                                                    doing, not ours
-#     scripts      17 /     764       30 /   1,600   one guard, thirteen checks
-#                                                    and two verdicts; a second
-#                                                    guard is about ten more
-#                                                    lines
+#     scripts      26 /   1,071       30 /   1,600   ten guards and two verdicts.
+#                                                    A guard that passes prints
+#                                                    ONE line, so a new one is
+#                                                    one more — except
+#                                                    output-budget-resolver,
+#                                                    which prints its thirteen
+#                                                    checks and is most of this
+#                                                    row. Measured on an arm64
+#                                                    Linux host on 2026-09-28,
+#                                                    on a tree carrying every
+#                                                    branch open against #6,
+#                                                    #11, #13, #14, #15, #16,
+#                                                    #17 and #20 — this file's
+#                                                    own branch alone measures
+#                                                    20 / 874, and the number
+#                                                    that matters is the one
+#                                                    main will have. FOUR LINES
+#                                                    of headroom: the next guard
+#                                                    fits, the one after wants
+#                                                    this row raised with its
+#                                                    own measurement.
 #     docker        8 /     423       20 /   2,000   six server lines and two
 #                                                    verdicts. It was 167 lines
 #                                                    until the image pulls were
@@ -147,7 +164,7 @@ chore_min_version: 0.6.0
 #                                                    nine lines. Measure it
 #                                                    properly when a job does
 #
-#   `scripts` was measured on an arm64 Linux host on 2026-09-26.
+#   `scripts` was measured on an arm64 Linux host on 2026-09-28.
 #   `native`, `suite` and `docker` were measured in CI — `native` on both
 #   platforms, with the budget set from the louder one; `unit`, `smb` and `s3`
 #   on an arm64 Linux host. Raise one DELIBERATELY when a tier grows. A budget
