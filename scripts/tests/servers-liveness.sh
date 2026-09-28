@@ -11,6 +11,12 @@
 # C harness, one driver deep, looking like a driver bug, and the container log
 # that said exactly what was wrong was never printed.
 #
+# THE STUB ANSWERS `build` AS WELL AS `run`, because half the servers are built
+# from a Dockerfile in this repository rather than pulled. Which half is not
+# this guard's business — it is asserting what servers.sh does with a container
+# once it exists — so the stub covers both and the guard does not have to move
+# every time a server changes where its image comes from.
+#
 # THE FIXTURE IS A FAKE DOCKER, NOT A REAL ONE. `chore test:scripts` runs on
 # macOS as well as ubuntu and the macOS runner has no daemon, so a guard that
 # needed one would be a guard that never ran on half the machines this
@@ -117,6 +123,7 @@ case "$1" in
     network) exit 0 ;;
     image)   exit 0 ;;            # inspect: the image is already local
     pull)    exit 0 ;;
+    build)   echo "0123456789ab"; exit 0 ;;
     rm)      exit 0 ;;
     run)     echo "0123456789ab"; exit 0 ;;
     logs)    echo "exec /entrypoint: exec format error" >&2; exit 0 ;;

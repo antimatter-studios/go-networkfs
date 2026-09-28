@@ -128,11 +128,27 @@ chore_min_version: 0.6.0
 #                                                    each. That is 80% of this
 #                                                    tier and it is go test's
 #                                                    doing, not ours
-#     scripts      20 /     874       30 /   1,600   two guards and two verdicts;
-#                                                    a guard that passes prints
-#                                                    ONE line, so a third is one
-#                                                    more. Measured on an arm64
-#                                                    Linux host, 2026-09-28
+#     scripts      26 /   1,071       30 /   1,600   ten guards and two verdicts.
+#                                                    A guard that passes prints
+#                                                    ONE line, so a new one is
+#                                                    one more — except
+#                                                    output-budget-resolver,
+#                                                    which prints its thirteen
+#                                                    checks and is most of this
+#                                                    row. Measured on an arm64
+#                                                    Linux host on 2026-09-28,
+#                                                    on a tree carrying every
+#                                                    branch open against #6,
+#                                                    #11, #13, #14, #15, #16,
+#                                                    #17 and #20 — this file's
+#                                                    own branch alone measures
+#                                                    20 / 874, and the number
+#                                                    that matters is the one
+#                                                    main will have. FOUR LINES
+#                                                    of headroom: the next guard
+#                                                    fits, the one after wants
+#                                                    this row raised with its
+#                                                    own measurement.
 #     docker        8 /     423       20 /   2,000   six server lines and two
 #                                                    verdicts. It was 167 lines
 #                                                    until the image pulls were
