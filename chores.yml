@@ -128,10 +128,11 @@ chore_min_version: 0.6.0
 #                                                    each. That is 80% of this
 #                                                    tier and it is go test's
 #                                                    doing, not ours
-#     scripts      17 /     764       30 /   1,600   one guard, thirteen checks
-#                                                    and two verdicts; a second
-#                                                    guard is about ten more
-#                                                    lines
+#     scripts      20 /     874       30 /   1,600   two guards and two verdicts;
+#                                                    a guard that passes prints
+#                                                    ONE line, so a third is one
+#                                                    more. Measured on an arm64
+#                                                    Linux host, 2026-09-28
 #     docker        8 /     423       20 /   2,000   six server lines and two
 #                                                    verdicts. It was 167 lines
 #                                                    until the image pulls were
@@ -147,7 +148,7 @@ chore_min_version: 0.6.0
 #                                                    nine lines. Measure it
 #                                                    properly when a job does
 #
-#   `scripts` was measured on an arm64 Linux host on 2026-09-26.
+#   `scripts` was measured on an arm64 Linux host on 2026-09-28.
 #   `native`, `suite` and `docker` were measured in CI — `native` on both
 #   platforms, with the budget set from the louder one; `unit`, `smb` and `s3`
 #   on an arm64 Linux host. Raise one DELIBERATELY when a tier grows. A budget
