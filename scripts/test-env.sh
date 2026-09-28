@@ -64,8 +64,22 @@ S3_DATA="${S3_DATA:-/var/lib/stupid-simple-s3/data}"
 S3_TMP="${S3_TMP:-/var/lib/stupid-simple-s3/tmp}"
 
 FTP_PORT="${FTP_PORT:-2121}"
-FTP_PASV_LO="${FTP_PASV_LO:-40000}"
-FTP_PASV_HI="${FTP_PASV_HI:-40009}"
+# BELOW 32768 ON PURPOSE, and the next person reaching for a nice round 40000
+# should read this first. Linux hands out ephemeral SOURCE ports from
+# net.ipv4.ip_local_port_range, which is 32768-60999 on the GitHub runners and
+# on most distributions. A passive range inside it can already be held by any
+# outbound connection the machine is making when ftp comes up — a registry
+# pull, an apt fetch, one of the other five `docker run`s — and the bind then
+# fails with "address already in use", aborting the whole servers chain on a
+# pull request whose diff does not touch FTP. Seen once, on exactly that kind
+# of pull request; issue #15. Anything under 32768 is never handed out as a
+# source port, so the collision cannot happen.
+#
+# vsftpd's own range is baked into the image's /etc/vsftpd.conf, so moving
+# these two moves the PUBLISH alone unless the server is told as well —
+# scripts/servers.sh passes them as -opasv_min_port/-opasv_max_port.
+FTP_PASV_LO="${FTP_PASV_LO:-30000}"
+FTP_PASV_HI="${FTP_PASV_HI:-30009}"
 FTP_IMAGE="${FTP_IMAGE:-garethflowers/ftp-server:latest}"
 FTP_CONTAINER="${FTP_CONTAINER:-go-networkfs-ftp}"
 FTP_USER="${FTP_USER:-testuser}"
