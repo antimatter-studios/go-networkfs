@@ -230,22 +230,30 @@ up_ftp() {
     echo "  ftp      127.0.0.1:$FTP_PORT (user $FTP_USER)"
 }
 
+# BUILT FROM SOURCE, like samba and mockapi. The image this replaced was
+# published for amd64 only, so on arm64 it exited with "exec format error"
+# before answering and took the whole servers chain with it (#16, #20).
 up_sftp() {
-    ensure_image "$SFTP_IMAGE"
+    build_image "$SFTP_IMAGE" .github/docker/sftp
     rm_container "$SFTP_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias sftp \
         --name "$SFTP_CONTAINER" -p "$SFTP_PORT:22" \
-        "$SFTP_IMAGE" "$SFTP_USER:$SFTP_PASS:::upload" >/dev/null
+        -e SFTP_USER="$SFTP_USER" -e SFTP_PASSWORD="$SFTP_PASS" \
+        -e SFTP_ROOT=/upload \
+        "$SFTP_IMAGE" >/dev/null
     wait_for_port "$SFTP_CONTAINER" "$SFTP_PORT"
     echo "  sftp     127.0.0.1:$SFTP_PORT (user $SFTP_USER, root /upload)"
 }
 
+# Also built from source: test/webdavd over golang.org/x/net/webdav, replacing
+# an amd64-only image for the same reason as sftp (#16, #20).
 up_webdav() {
-    ensure_image "$DAV_IMAGE"
+    build_image "$DAV_IMAGE" -f .github/docker/webdav/Dockerfile .
     rm_container "$DAV_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias webdav \
         --name "$DAV_CONTAINER" -p "$DAV_PORT:80" \
-        -e USERNAME="$DAV_USER" -e PASSWORD="$DAV_PASS" "$DAV_IMAGE" >/dev/null
+        -e WEBDAVD_USER="$DAV_USER" -e WEBDAVD_PASS="$DAV_PASS" \
+        "$DAV_IMAGE" >/dev/null
     wait_for_port "$DAV_CONTAINER" "$DAV_PORT"
     echo "  webdav   127.0.0.1:$DAV_PORT (user $DAV_USER)"
 }

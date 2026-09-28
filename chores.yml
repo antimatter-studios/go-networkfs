@@ -38,6 +38,15 @@ chore_min_version: 0.6.0
 #   Google Drive and OneDrive cannot be run locally at all (test/mockapi stands
 #   in for those three, built from this repository so it cannot drift).
 #
+#   FOUR OF THE SIX ARE BUILT HERE, NOT PULLED: samba, mockapi, and — since
+#   issues #16 and #20 — sftp and webdav. The two images those replaced
+#   published linux/amd64 manifests alone, so on an arm64 host they exited
+#   with "exec format error" and `servers.sh up` stopped at the first of them.
+#   The consumer of these archives is a macOS application, so an Apple Silicon
+#   workstation is exactly where a developer runs this. Built here they are
+#   multi-arch by construction. The two that are still pulled, sss3 and the
+#   FTP server, are pinned to a version.
+#
 #   ONE OF THE SIX NEEDS NO DAEMON. stupid-simple-s3 ships as a static binary
 #   as well as an image, so `chore test:s3` runs the pinned, checksummed binary
 #   (`s3-native`) and works on a machine with no Docker at all. `chore test`

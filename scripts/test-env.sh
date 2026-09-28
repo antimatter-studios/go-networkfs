@@ -80,19 +80,35 @@ FTP_PORT="${FTP_PORT:-2121}"
 # scripts/servers.sh passes them as -opasv_min_port/-opasv_max_port.
 FTP_PASV_LO="${FTP_PASV_LO:-30000}"
 FTP_PASV_HI="${FTP_PASV_HI:-30009}"
-FTP_IMAGE="${FTP_IMAGE:-garethflowers/ftp-server:latest}"
+# PINNED, because :latest is not a version. Issue #7 was an unpinned image
+# that stopped existing; this one is multi-arch (386, amd64, arm/v6, arm/v7,
+# arm64, ppc64le, s390x — `docker manifest inspect`, 2026-09-28), so unlike
+# the WebDAV and SFTP servers it did not also have to be replaced.
+FTP_VERSION="${FTP_VERSION:-0.9.2}"
+FTP_IMAGE="${FTP_IMAGE:-garethflowers/ftp-server:$FTP_VERSION}"
 FTP_CONTAINER="${FTP_CONTAINER:-go-networkfs-ftp}"
 FTP_USER="${FTP_USER:-testuser}"
 FTP_PASS="${FTP_PASS:-Ftppasswd12345}"
 
+# BUILT FROM .github/docker/sftp, NOT PULLED. atmoz/sftp:latest is published
+# for linux/amd64 alone: on an arm64 host it exited with "exec format error"
+# before answering on port 22, and `servers.sh up` stopped there, so the one
+# task that exercises every driver's tagged integration tests and the C ABI
+# did not run at all on the architecture a macOS developer has. Issues #16 and
+# #20. Built here it is multi-arch by construction and pinned by this
+# repository's own commit.
 SFTP_PORT="${SFTP_PORT:-2222}"
-SFTP_IMAGE="${SFTP_IMAGE:-atmoz/sftp:latest}"
+SFTP_IMAGE="${SFTP_IMAGE:-go-networkfs-sftp:test}"
 SFTP_CONTAINER="${SFTP_CONTAINER:-go-networkfs-sftp}"
 SFTP_USER="${SFTP_USER:-testuser}"
 SFTP_PASS="${SFTP_PASS:-testpass}"
 
+# BUILT FROM .github/docker/webdav, NOT PULLED, for the same reason as sftp:
+# bytemark/webdav:latest is linux/amd64 only. The server is test/webdavd, ~90
+# lines over golang.org/x/net/webdav — already a dependency of this module —
+# so it cannot drift from what the driver expects either.
 DAV_PORT="${DAV_PORT:-8080}"
-DAV_IMAGE="${DAV_IMAGE:-bytemark/webdav:latest}"
+DAV_IMAGE="${DAV_IMAGE:-go-networkfs-webdav:test}"
 DAV_CONTAINER="${DAV_CONTAINER:-go-networkfs-webdav}"
 DAV_USER="${DAV_USER:-testuser}"
 DAV_PASS="${DAV_PASS:-testpass}"
