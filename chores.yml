@@ -458,6 +458,27 @@ tasks:
     cmds:
       - 'scripts/tier.sh test docker 20 2000 -- scripts/docker-suite.sh'
 
+  fuzz:
+    desc: "The fuzzing explorer: every Fuzz* target in turn, on a bounded budget"
+    # THE OTHER HALF IS ALREADY RUNNING AND IS NOT HERE. Go replays every
+    # f.Add seed and every file in testdata/fuzz/<Target>/ as an ORDINARY unit
+    # test during a plain `go test`, so the deterministic corpus gate the Rust
+    # siblings had to build by hand is already in `chore test:unit` and
+    # `chore test:native`, on every pull request. This task is only the
+    # explorer, and it is not in `test` for the reason every explorer is not:
+    # it runs until a clock expires rather than until it is done. Issue #17.
+    #
+    #   chore fuzz              every target, 60s each
+    #   chore fuzz -- 300       every target, 300s each
+    #   chore fuzz -- 60 FuzzNormPath
+    #
+    # NOT THROUGH scripts/tier.sh. `go test -fuzz` prints a progress line every
+    # three seconds — twenty lines a minute a target — so a budget measured in
+    # lines would say nothing about the run and everything about the clock.
+    # fuzz.sh writes the whole thing to tmp/logs/fuzz.log and prints one line
+    # per target instead, which is the same intent by the means that fits.
+    cmds: ['scripts/fuzz.sh {{.CLI_ARGS}}']
+
   bench:
     desc: Streaming and list benchmarks against the embedded FTP server
     cmds: ['go test -run=^$ -bench=. -benchmem ./ftp/...']

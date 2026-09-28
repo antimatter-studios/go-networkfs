@@ -437,6 +437,16 @@ func (d *S3Driver) Rename(mountID int, oldPath, newPath string) error {
 
 // toKey maps a driver-facing path ("/foo/bar.txt") to an S3 object key,
 // honouring the configured prefix.
+//
+// IT TRIMS ONE SEPARATOR, NOT ALL OF THEM, and s3_test.go's TestToKey pins
+// that deliberately. So on its own toKey("//") is the key "/" — an empty
+// first segment, which is a different object from the one every other code
+// path computes. It is not reachable through the driver: every call site is
+// d.toKey(normPath(path)), and normPath's output carries exactly one leading
+// separator. FuzzToKeyStaysUnderPrefix fuzzes that COMPOSITION rather than
+// this function alone, because the composition is what the driver has and
+// asserting containment on the bare function would be asserting a contract it
+// does not offer.
 func (d *S3Driver) toKey(path string) string {
 	p := strings.TrimPrefix(path, "/")
 	if d.prefix == "" {
@@ -454,12 +464,26 @@ func normalizePrefix(prefix string) string {
 	return prefix + "/"
 }
 
+// normPath turns whatever the layer above hands down into one absolute path
+// with no trailing separator. The root is "/".
+//
+// THE ROOT TEST COMES AFTER THE TRIM, and that is the whole of what this had
+// wrong. It tested for "" or "/" first, so a path of "//" fell through, the
+// TrimRight took every separator off it and the result was the EMPTY STRING —
+// not absolute, not idempotent (normPath("//") = "", normPath("") = "/"), and
+// fed straight into toKey, where it addresses the bucket root rather than
+// being refused. Found by FuzzNormPath.
+//
+// It matters because path is not always a caller's literal: Rename and the
+// directory walk derive theirs from a listing the SERVER produced, and an S3
+// key is an opaque byte string that the server puts no constraint on.
 func normPath(path string) string {
-	if path == "" || path == "/" {
-		return "/"
-	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	return strings.TrimRight(path, "/")
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		return "/"
+	}
+	return path
 }
