@@ -128,7 +128,7 @@ chore_min_version: 0.6.0
 #                                                    each. That is 80% of this
 #                                                    tier and it is go test's
 #                                                    doing, not ours
-#     scripts      26 /   1,071       30 /   1,600   ten guards and two verdicts.
+#     scripts      31 /   1,071       40 /   1,600   ten guards and two verdicts.
 #                                                    A guard that passes prints
 #                                                    ONE line, so a new one is
 #                                                    one more — except
@@ -148,7 +148,16 @@ chore_min_version: 0.6.0
 #                                                    of headroom: the next guard
 #                                                    fits, the one after wants
 #                                                    this row raised with its
-#                                                    own measurement.
+#                                                    own measurement. RAISED
+#                                                    for #31: the macos-latest
+#                                                    job printed 31 lines on
+#                                                    its branch (every guard
+#                                                    passing) where the same
+#                                                    tree prints 25 / 1,037 on
+#                                                    an arm64 macOS host -- the
+#                                                    runner adds lines a host
+#                                                    run does not, so the row
+#                                                    is measured on CI now
 #     docker        8 /     423       20 /   2,000   six server lines and two
 #                                                    verdicts. It was 167 lines
 #                                                    until the image pulls were
@@ -362,7 +371,7 @@ tasks:
     # inside scripts/tier.sh already, and a guard that drives tier.sh from
     # inside a tier is three deep for no gain. CI runs it as its own step.
     cmds:
-      - 'scripts/tier.sh test:scripts scripts 30 1600 -- scripts/tests/run-all.sh'
+      - 'scripts/tier.sh test:scripts scripts 40 1600 -- scripts/tests/run-all.sh'
 
   test:unit:
     desc: "The tests that need no server and no container — what runs anywhere, on anything"

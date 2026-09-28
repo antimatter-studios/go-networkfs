@@ -199,4 +199,18 @@ change that started using one would go green locally and be wrong:
   event before cancelling, so it is correct either way, just not short-circuited
   server-side.
 
+**All three are asserted, not only written down here.** `s3/s3_gaps_test.go`
+(tag `s3_integration`, so `chore test:s3` runs it) probes the server for each
+with the same minio-go client the driver builds and requires the gap to still
+be there. The day sss3 implements one the suite goes red, which is the moment
+this list needs revisiting and the only moment anybody would otherwise notice.
+`scripts/tests/s3-server-gaps.sh` covers the other direction — the driver
+starting to call one — which no test against this server can see, because the
+call would fail here and work against AWS.
+
+The one that cannot be grepped for is `CopyObject` over 5 GiB: minio-go
+switches to the multipart copy path inside the library, so `Rename` is already
+one large file away from `UploadPartCopy` with nothing in the suite to catch
+it. Issue #11 has the measurements.
+
 [sss3]: https://github.com/espebra/stupid-simple-s3
