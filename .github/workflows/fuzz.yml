@@ -1,0 +1,62 @@
+name: Fuzz
+
+# THE EXPLORER, NIGHTLY. The deterministic half is not here: Go replays every
+# f.Add seed and every file in testdata/fuzz/<Target>/ as an ordinary unit
+# test, so the corpus gate runs inside `chore test:unit` on every pull request
+# and needs no job of its own. What a schedule buys is the part that cannot be
+# paid for per pull request — a budget long enough to find something new.
+# Issue #17.
+#
+# IT IS NOT A REQUIRED CHECK, and must never become one: it runs on a schedule
+# and on dispatch, so it can never report on a pull request, and a required
+# check that never reports is a permanent block rather than a gate
+# (.github-guard).
+#
+# WHAT TO DO WHEN IT GOES RED. `go test -fuzz` writes the failing input into
+# testdata/fuzz/<Target>/ as it finds it, and this job uploads that directory.
+# Download it, commit the file, and the plain test run reproduces the failure
+# from then on — no fuzzer needed to see it again.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        required: false
+        default: '300'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz (explorer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: install chore
+        run: scripts/ci-install-chore.sh
+
+      # Eight targets at five minutes each is forty minutes of wall clock,
+      # which is what a nightly is for and what a pull request is not.
+      - name: chore fuzz
+        run: chore fuzz -- "${{ github.event.inputs.seconds || '300' }}"
+
+      # ALWAYS, because the run that has to be diagnosed is exactly the one
+      # that failed, and the failing input is a file this job created.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fuzz-findings
+          path: |
+            tmp/logs/
+            '**/testdata/fuzz/**'
+          if-no-files-found: ignore
