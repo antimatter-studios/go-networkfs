@@ -75,11 +75,25 @@ func walk(d api.Driver, mountID int, info api.FileInfo, fn WalkFunc) error {
 	return nil
 }
 
+// joinPath puts name under dir with exactly one separator between them.
+//
+// THE TRIM COMES FIRST, and that is the whole of what this function had wrong.
+// It tested dir for "" or "/" BEFORE trimming, so a directory of "//" fell
+// through to the second branch, trimRightSlash left it as "/" — the loop stops
+// at length one — and the result was "//name". Found by FuzzJoinPath, seed
+// testdata/fuzz/FuzzJoinPath/946afc886a2e5424.
+//
+// It matters because dir is a path a REMOTE SERVER chose: fsutil.Walk passes
+// api.FileInfo.Path straight from a driver's listing. A doubled separator is a
+// different path to plenty of servers, and NameFromPath would still report the
+// entry's name correctly, so the mistake would show up as a request for a path
+// that does not exist rather than as anything about joining.
 func joinPath(dir, name string) string {
+	dir = trimRightSlash(dir)
 	if dir == "" || dir == "/" {
 		return "/" + name
 	}
-	return trimRightSlash(dir) + "/" + name
+	return dir + "/" + name
 }
 
 func trimRightSlash(s string) string {
