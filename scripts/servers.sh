@@ -203,11 +203,29 @@ up_ftp() {
     rm_container "$FTP_CONTAINER"
     # Passive mode hands the client a second port to connect back on, so the
     # range has to be published as well as the control port.
+    #
+    # AND THE SERVER HAS TO BE TOLD THE SAME RANGE. vsftpd reads its passive
+    # ports from /etc/vsftpd.conf, which the image ships with 40000-40009 in
+    # it, and no environment variable moves them. Publishing a different range
+    # on its own would leave the server advertising ports nothing forwards,
+    # and the failure would arrive as an FTP transfer that hangs rather than
+    # as a configuration mistake. The image's entrypoint ends in `exec "$@"`
+    # and its command is the daemon, so the daemon's own -o flags are the way
+    # in — one range, named once, in scripts/test-env.sh.
+    #
+    # /etc/vsftpd.conf IS NAMED EXPLICITLY, AND THAT IS NOT DECORATION.
+    # vsftpd processes its arguments left to right and falls back to reading
+    # /etc/vsftpd.conf only when no config file was named — AFTER the -o
+    # options, which the file then overrides. Measured: with the flags alone
+    # the server still answered PASV with 40009, 40007, 40003. Naming the file
+    # first puts the -o options last, and it answers 30000, 30003, 30006.
     docker run -d --network "$TEST_NETWORK" --network-alias ftp \
         --name "$FTP_CONTAINER" \
         -p "$FTP_PORT:21" -p "$FTP_PASV_LO-$FTP_PASV_HI:$FTP_PASV_LO-$FTP_PASV_HI" \
         -e FTP_USER="$FTP_USER" -e FTP_PASS="$FTP_PASS" \
-        "$FTP_IMAGE" >/dev/null
+        "$FTP_IMAGE" \
+        /usr/sbin/vsftpd /etc/vsftpd.conf \
+        -opasv_min_port="$FTP_PASV_LO" -opasv_max_port="$FTP_PASV_HI" >/dev/null
     wait_for_port "$FTP_CONTAINER" "$FTP_PORT"
     echo "  ftp      127.0.0.1:$FTP_PORT (user $FTP_USER)"
 }
