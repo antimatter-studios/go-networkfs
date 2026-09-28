@@ -539,6 +539,12 @@ without changing that file strands every merge.
 The pre-commit hook (`./scripts/install-hooks.sh`) runs the fast subset
 locally — `gofmt -s` + `go vet`. Bypass with `git commit --no-verify`.
 
+It installs into the hooks **directory**, never by pointing `core.hooksPath`
+at the tracked one: that value replaces `.git/hooks` wholesale, so setting it
+switches off every hook installed there — including github-guard's, which is
+the thing refusing a commit on `main`. Where github-guard's dispatcher is
+present the checks go into `.git/hooks/pre-commit.d/` and both sets run.
+
 ## Docs
 
 - [docs/ROADMAP.md](docs/ROADMAP.md) — prioritised plan of what's next
