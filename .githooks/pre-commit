@@ -4,9 +4,16 @@
 # doesn't fail on something we could have caught locally in seconds.
 #
 # Enable once per clone:
-#   git config core.hooksPath .githooks
-# or:
 #   ./scripts/install-hooks.sh
+#
+# It copies this file into the hooks DIRECTORY — into
+# .git/hooks/pre-commit.d/ when github-guard's dispatcher is there, and to
+# .git/hooks/pre-commit otherwise.
+#
+# Do NOT point core.hooksPath at this directory instead. That setting REPLACES
+# .git/hooks, so it switches off every hook installed there — github-guard's
+# refusal to commit on main included — and nothing prints when it happens.
+# The installer clears it if it finds it set. Issue #14.
 #
 # Skip for a single WIP commit (use sparingly):
 #   git commit --no-verify
