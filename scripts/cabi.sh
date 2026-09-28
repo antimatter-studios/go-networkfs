@@ -2,6 +2,8 @@
 #
 # cabi.sh — the C ABI harnesses: build them, run them, fold their coverage in.
 #
+#   cabi.sh configs    every driver in DRIVERS has a mount config here, and
+#                      nothing else does — checked without building anything
 #   cabi.sh drivers    the eight per-driver archives, each linked into its own
 #                      C program and run
 #   cabi.sh unified    libnetworkfs.a, with coverage, against a real server
@@ -38,9 +40,16 @@ GO="${GO:-go}"
 
 die() { echo "cabi.sh: $*" >&2; exit 1; }
 
-# The config each harness mounts with. A driver with no server here gets an
-# empty config and the harness only reaches its failure paths — see issue #6,
-# which is about making that visible rather than silent.
+# The config each harness mounts with.
+#
+# THE DEFAULT ARM FAILS, AND THAT IS THE POINT. It used to hand back an empty
+# string, and an empty CABI_CONFIG makes the harness skip its mounted tests and
+# exit 0 — so adding a ninth driver to DRIVERS without adding a case here was a
+# one-line omission that produced a passing job with that driver's entire
+# success path untested: openfile, writefile and the ByteSlice hand-back that
+# is the boundary's whole contract. Issue #6. Two lists that had to agree and
+# nothing that checked them; now the build list cannot drift from the config
+# list, because a name in one and not the other stops the run by name.
 config_for() {   # $1 = driver
     case "$1" in
         smb)      echo "{\"host\":\"$SMB_ADDR\",\"port\":\"$SMB_PORT\",\"share\":\"$SMB_SHARE\",\"user\":\"$SMB_USER\",\"pass\":\"$SMB_PASS\"}" ;;
@@ -51,11 +60,24 @@ config_for() {   # $1 = driver
         dropbox)  echo "{\"access_token\":\"mock\",\"api_base_url\":\"http://$MOCK_ADDR:$MOCK_PORT/dropbox\"}" ;;
         gdrive)   echo "{\"client_id\":\"c\",\"client_secret\":\"s\",\"refresh_token\":\"r\",\"api_base_url\":\"http://$MOCK_ADDR:$MOCK_PORT/gdrive\"}" ;;
         onedrive) echo "{\"client_id\":\"c\",\"refresh_token\":\"r\",\"api_base_url\":\"http://$MOCK_ADDR:$MOCK_PORT/onedrive\"}" ;;
-        *)        echo "" ;;
+        *)        die "no config case for driver '$1' — add one to config_for(), or take it out of DRIVERS in scripts/test-env.sh" ;;
     esac
 }
 
+# EVERY DRIVER IS CHECKED BEFORE ANYTHING IS BUILT. config_for dies on an
+# unknown driver, but reaching it takes a c-archive build first, so the run
+# would spend minutes before saying a word about a one-line omission. This is
+# the same answer, up front, and it is what `cabi.sh configs` exposes so a
+# shell guard can drive it without a compiler.
+check_configs() {
+    for d in $DRIVERS; do
+        config_for "$d" >/dev/null
+    done
+    echo "cabi.sh: every driver in DRIVERS has a config: $DRIVERS"
+}
+
 cabi_drivers() {
+    check_configs >/dev/null
     rm -rf "$CABI_DIR/drivers"
     mkdir -p "$CABI_DIR/drivers"
     for d in $DRIVERS; do
@@ -103,13 +125,14 @@ cabi_cover() {
 }
 
 case "${1:-}" in
+    configs) check_configs ;;
     drivers) cabi_drivers ;;
     unified) cabi_unified ;;
     all)     cabi_drivers; cabi_unified ;;
     cover)   cabi_cover ;;
     ""|-h|--help)
-        sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         if [ -z "${1:-}" ]; then exit 2; fi
         ;;
-    *) die "unknown command '$1' (drivers, unified, all, cover)" ;;
+    *) die "unknown command '$1' (configs, drivers, unified, all, cover)" ;;
 esac

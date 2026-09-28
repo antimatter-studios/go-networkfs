@@ -19,6 +19,24 @@
 static int failures = 0;
 static int checks = 0;
 
+// THE FLOORS, AND WHY A HARNESS THAT RAN NOTHING HAS TO FAIL.
+//
+// main returned `failures == 0 ? 0 : 1`, so `checks` was printed and never
+// asserted on: a harness that executed forty checks and a harness that
+// executed none exited identically, and so did one that stopped a third of
+// the way through. Only a count can tell those apart. Issue #6.
+//
+// TWO NUMBERS, because a skip is right on a laptop with no servers up and
+// wrong in the job whose whole reason for existing is that the servers are
+// there. Without CABI_CONFIG the mounted round trip does not run and 17
+// checks is the honest total; with it, all 28 must.
+//
+// EQUALITY, NOT "AT LEAST". A check added without moving the number is an
+// unreviewed change to what this file claims to prove, and it is exactly as
+// interesting as one removed. Raise it in the same commit that adds the check.
+#define EXPECTED_CHECKS_OFFLINE 17
+#define EXPECTED_CHECKS_MOUNTED 28
+
 static void check(int cond, const char *what) {
     checks++;
     if (!cond) {
@@ -102,6 +120,17 @@ static void test_operations_unmounted(void) {
 static void test_mounted_round_trip(void) {
     const char *cfg = getenv("CABI_CONFIG");
     if (!cfg || cfg[0] == '\0') {
+        // A SKIP IS RIGHT ON A LAPTOP AND WRONG IN CI. With no servers up
+        // there is nothing to mount and saying so is honest. In the job that
+        // exists BECAUSE the servers are up, an empty config means
+        // scripts/cabi.sh did not supply one — and the whole success path of
+        // this driver then goes untested while the job reports green.
+        if (getenv("CI") != NULL || getenv("GITHUB_ACTIONS") != NULL) {
+            fprintf(stderr,
+                    "FAIL: CABI_CONFIG is empty under CI — scripts/cabi.sh's config_for()\n"
+                    "      owes dropbox one, and its whole mounted surface did not run.\n");
+            failures++;
+        }
         printf("dropbox: no CABI_CONFIG; skipping the mounted tests\n");
         return;
     }
@@ -176,6 +205,19 @@ int main(void) {
     test_mounted_round_trip();
 
     printf("dropbox: %d checks, %d failures\n", checks, failures);
+
+    {
+        const char *config = getenv("CABI_CONFIG");
+        const int mounted = (config != NULL && config[0] != '\0');
+        const int expected = mounted ? EXPECTED_CHECKS_MOUNTED : EXPECTED_CHECKS_OFFLINE;
+        if (checks != expected) {
+            fprintf(stderr,
+                    "FAIL: %d checks ran, %d expected %s — this harness did not finish.\n",
+                    checks, expected,
+                    mounted ? "with a mount config" : "without a mount config");
+            failures++;
+        }
+    }
 
 #ifdef NETWORKFS_COVERAGE
     {

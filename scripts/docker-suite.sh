@@ -57,6 +57,12 @@ fi
 # `chore test:ci` inside, not a script: the container runs the same task name a
 # developer runs when the servers are already up, and the runner image carries
 # chore for exactly that reason.
+#
+# CI AND GITHUB_ACTIONS ARE FORWARDED because the C harnesses read them. A
+# missing mount config is a skip on a laptop and a FAILURE in the job whose
+# reason for existing is that the servers are up (issue #6) — and the harnesses
+# run in here, where nothing about the outer runner is visible unless it is
+# passed in. Empty on a developer machine, which is the laptop case.
 docker run --rm --network "$TEST_NETWORK" \
     -v "$REPO":/src -v go-networkfs-gomod:/go/pkg/mod \
     -e SMB_ADDR=samba    -e SMB_PORT=445 \
@@ -66,5 +72,6 @@ docker run --rm --network "$TEST_NETWORK" \
     -e DAV_ADDR=webdav   -e DAV_PORT=80 \
     -e MOCK_ADDR=mockapi -e MOCK_PORT=8081 \
     -e OUTPUT_BUDGET_VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}" \
+    -e CI="${CI:-}" -e GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \
     -v "$CORE_ROOT":/fs-core:ro -e FS_CORE_ROOT=/fs-core \
     "$RUNNER_IMAGE" chore test:ci
