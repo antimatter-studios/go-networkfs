@@ -219,11 +219,44 @@ up_ftp() {
     # options, which the file then overrides. Measured: with the flags alone
     # the server still answered PASV with 40009, 40007, 40003. Naming the file
     # first puts the -o options last, and it answers 30000, 30003, 30006.
-    docker run -d --network "$TEST_NETWORK" --network-alias ftp \
+    #
+    # --init AND OUR OWN ENTRYPOINT, OR THE SERVER DIES AFTER A FEW CLIENTS.
+    # Issue #27: the container exited 139 (SIGSEGV) after a first session, so
+    # the second test against it found nothing listening. vsftpd's standalone
+    # listener reaps children in a SIGCHLD handler that assumes every pid it
+    # reaps is a session it forked: it looks the pid up and passes the result,
+    # unchecked, to drop_ip_count(), which dereferences it (standalone.c,
+    # handle_sigchld, 3.0.5). Any other child is a NULL dereference. The
+    # image's arrangement hands it two kinds of other child:
+    #
+    #   - as the container's PID 1 it inherits every orphan. A session's two
+    #     processes can exit in either order; when the privileged one goes
+    #     first its partner is reparented to the listener. Measured: 100 logins
+    #     dropped without QUIT killed it in five runs of six.
+    #   - the image entrypoint backgrounds two `tail -f | tee` pipelines and
+    #     then execs vsftpd, so those four processes are the listener's
+    #     children too. Measured: killing one kills the server, exit 139.
+    #
+    # --init puts docker's init at PID 1 to take the orphans, and replacing the
+    # entrypoint with the lines of it that matter (make the user, set its
+    # password) means there are no log pipelines to inherit. The log is still
+    # followed onto stdout, so `docker logs` — which #13's liveness check
+    # prints on a failure — has it, but from a subshell that exits at once:
+    # the `tail` is orphaned to docker's init, never a child of vsftpd.
+    # (Pointing vsftpd's own log at /dev/stdout does not work: a session
+    # refuses to start with "500 OOPS: failed to open xferlog log file".)
+    docker run -d --init --network "$TEST_NETWORK" --network-alias ftp \
         --name "$FTP_CONTAINER" \
         -p "$FTP_PORT:21" -p "$FTP_PASV_LO-$FTP_PASV_HI:$FTP_PASV_LO-$FTP_PASV_HI" \
         -e FTP_USER="$FTP_USER" -e FTP_PASS="$FTP_PASS" \
-        "$FTP_IMAGE" \
+        --entrypoint /bin/sh \
+        "$FTP_IMAGE" -c '
+            set -e
+            adduser -D -h "/home/$FTP_USER" -s /bin/false "$FTP_USER"
+            echo "$FTP_USER:$FTP_PASS" | chpasswd
+            touch /var/log/vsftpd.log
+            (tail -n0 -F /var/log/vsftpd.log &)
+            exec "$@"' ftp-entrypoint \
         /usr/sbin/vsftpd /etc/vsftpd.conf \
         -opasv_min_port="$FTP_PASV_LO" -opasv_max_port="$FTP_PASV_HI" >/dev/null
     wait_for_port "$FTP_CONTAINER" "$FTP_PORT"
