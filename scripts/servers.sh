@@ -355,20 +355,13 @@ case "$cmd" in
 
     env)
         # What a suite needs in its environment to reach the servers this
-        # script started. One definition, read by scripts/suite.sh and by
-        # anyone running a single test by hand.
-        cat <<ENV
-SMB_HOST=${SMB_ADDR:-127.0.0.1}
-SMB_PORT=$SMB_PORT
-SMB_SHARE=tmp
-SMB_USER=smbuser
-SMB_PASS=Smbpasswd12345
-S3_ENDPOINT=${S3_ADDR:-127.0.0.1}:$S3_PORT
-S3_BUCKET=$S3_BUCKET
-S3_ACCESS_KEY=$S3_KEY
-S3_SECRET_KEY=$S3_SECRET
-S3_SECURE=false
-ENV
+        # script started, for anyone running a single test by hand. The same
+        # function scripts/suite.sh and scripts/with-servers.sh call, so this
+        # cannot print something the suite does not get.
+        export_suite_env
+        for v in $SUITE_ENV_VARS; do
+            printf '%s=%s\n' "$v" "${!v}"
+        done
         ;;
 
     ""|-h|--help)

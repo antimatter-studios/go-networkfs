@@ -28,13 +28,19 @@ import (
 	"time"
 )
 
-// mountOrSkip builds a live-Dropbox driver or skips the test. Ensures
-// the sandbox root directory exists up front.
-func mountOrSkip(t *testing.T) (*DropboxDriver, string) {
+// mountLive builds a live-Dropbox driver and ensures the sandbox root
+// directory exists up front.
+//
+// A missing token is a FAILURE, not a skip. The dropbox_integration tag is
+// already the whole switch — nothing passes it but a person who means to hit
+// the live service — so asking for the tag without a token is a mistake to be
+// told about, and a skip would report it as a pass. Issue #33.
+func mountLive(t *testing.T) (*DropboxDriver, string) {
 	t.Helper()
 	token := os.Getenv("DROPBOX_TOKEN")
 	if token == "" {
-		t.Skip("DROPBOX_TOKEN not set; skipping live Dropbox integration test")
+		t.Fatal("Dropbox integration cannot run: DROPBOX_TOKEN unset. These tests " +
+			"hit the live service; no task provides a token, so set one yourself.")
 	}
 	root := os.Getenv("DROPBOX_TEST_ROOT")
 	if root == "" {
@@ -62,7 +68,7 @@ func uniquePath(root, name string) string {
 }
 
 func TestIntegrationStatRoot(t *testing.T) {
-	d, root := mountOrSkip(t)
+	d, root := mountLive(t)
 	fi, err := d.Stat(1, root)
 	if err != nil {
 		t.Fatalf("Stat %q: %v", root, err)
@@ -73,7 +79,7 @@ func TestIntegrationStatRoot(t *testing.T) {
 }
 
 func TestIntegrationUploadStatDownloadRemove(t *testing.T) {
-	d, root := mountOrSkip(t)
+	d, root := mountLive(t)
 	path := uniquePath(root, "hello.txt")
 
 	w, err := d.CreateFile(1, path)
@@ -123,7 +129,7 @@ func TestIntegrationUploadStatDownloadRemove(t *testing.T) {
 }
 
 func TestIntegrationMkdirListRename(t *testing.T) {
-	d, root := mountOrSkip(t)
+	d, root := mountLive(t)
 	sub := uniquePath(root, "sub")
 	t.Cleanup(func() { _ = d.Remove(1, sub) })
 
@@ -165,7 +171,7 @@ func TestIntegrationMkdirListRename(t *testing.T) {
 }
 
 func TestIntegrationLargeUploadRoundTrip(t *testing.T) {
-	d, root := mountOrSkip(t)
+	d, root := mountLive(t)
 	path := uniquePath(root, "big.bin")
 	t.Cleanup(func() { _ = d.Remove(1, path) })
 
