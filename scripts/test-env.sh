@@ -119,6 +119,24 @@ MOCK_PORT="${MOCK_PORT:-8081}"
 MOCK_IMAGE="${MOCK_IMAGE:-go-networkfs-mockapi:test}"
 MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 
+# WHAT A TAGGED GO TEST AND THE C HARNESSES READ, exported under the names the
+# tests use rather than the ones this file uses. One function, called by
+# scripts/with-servers.sh AND scripts/suite.sh, because it used to be three
+# lines in with-servers.sh alone: `chore test:smb` and `chore test:s3` had the
+# environment, and the containerised run — which reaches suite.sh through
+# `chore test:ci`, never through with-servers.sh — did not, so every tagged S3
+# and SMB test in CI skipped itself and the job went green. Issue #33.
+#
+# SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
+# guard (scripts/tests/suite-env.sh) can hold the two to each other.
+# shellcheck disable=SC2034  # read by servers.sh, which sources this file
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY"
+export_suite_env() {
+    export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
+    export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
+    export S3_ACCESS_KEY="$S3_KEY" S3_SECRET_KEY="$S3_SECRET"
+}
+
 # Every driver whose integration tests are behind a build tag and need a
 # server. Without these tags most of each driver is never executed and the
 # default coverage number reports it as untested.

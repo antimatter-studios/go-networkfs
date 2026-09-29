@@ -27,6 +27,12 @@ cd "$REPO"
 # shellcheck source=scripts/test-env.sh
 . "$REPO/scripts/test-env.sh"
 
+# THE TAGGED TESTS READ THEIR SERVER FROM THE ENVIRONMENT, and this is the one
+# path to them that does not pass through with-servers.sh: the containerised
+# run calls `chore test:ci`, which calls this. Without it every S3 and SMB
+# integration test had nothing to connect to (issue #33).
+export_suite_env
+
 GO="${GO:-go}"
 
 pkgs="$($GO list ./... | grep -v '/test/' | paste -sd, -)"

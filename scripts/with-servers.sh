@@ -39,12 +39,9 @@ esac
 # shellcheck source=scripts/test-env.sh
 . "$REPO/scripts/test-env.sh"
 
-# What a tagged Go test and the C harnesses read. These names belong to the
-# tests, not to the rig, which is why they are mapped here rather than being
-# what test-env.sh calls them.
-export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
-export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
-export S3_ACCESS_KEY="$S3_KEY" S3_SECRET_KEY="$S3_SECRET"
+# What a tagged Go test and the C harnesses read — defined once, in
+# test-env.sh, because scripts/suite.sh needs exactly the same (issue #33).
+export_suite_env
 
 # shellcheck disable=SC2086  # the words are the server names
 cleanup() { scripts/servers.sh down $names >/dev/null 2>&1 || true; }

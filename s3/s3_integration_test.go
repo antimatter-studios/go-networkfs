@@ -48,14 +48,23 @@ func requireEnv(t *testing.T) map[string]string {
 		"use_path_style":    "true",
 		"prefix":            env("S3_PREFIX"),
 	}
+	// The variable names are listed, not derived from the config keys: the
+	// derivation named S3_SECRET_ACCESS_KEY, which is not what anything reads.
 	var missing []string
-	for _, k := range []string{"endpoint", "bucket", "access_key_id", "secret_access_key"} {
-		if cfg[k] == "" {
-			missing = append(missing, "S3_"+strings.ToUpper(strings.TrimSuffix(k, "_id")))
+	for _, v := range []string{"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"} {
+		if env(v) == "" {
+			missing = append(missing, v)
 		}
 	}
 	if len(missing) > 0 {
-		t.Skipf("S3 integration skipped: set %s", strings.Join(missing, ", "))
+		// A FAILURE, NOT A SKIP. The build tag is the switch for "there is a
+		// server": asking for it is asking for one, so an unset address here
+		// is either a rig that did not export what it should have or a
+		// hand-run `go test -tags=s3_integration` — and a skip reports both
+		// as a pass. Issue #33.
+		t.Fatalf("S3 integration cannot run: %s unset. Run `chore test:s3` "+
+			"(or `chore test`), which starts the server and exports them.",
+			strings.Join(missing, ", "))
 	}
 	return cfg
 }
