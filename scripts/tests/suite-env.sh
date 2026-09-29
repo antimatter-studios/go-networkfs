@@ -21,7 +21,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-EXPECTED_CHECKS=20
+EXPECTED_CHECKS=28
 checks=0
 fails=0
 
@@ -33,8 +33,9 @@ SANDBOX="$(mktemp -d)"
 trap 'rm -rf "$SANDBOX"' EXIT
 
 # The variables each tagged suite refuses to run without — the lists in the
-# requireEnv of s3/s3_integration_test.go and smb/smb_integration_test.go.
-REQUIRED="S3_ENDPOINT S3_BUCKET S3_ACCESS_KEY S3_SECRET_KEY SMB_HOST SMB_SHARE SMB_USER SMB_PASS"
+# requireEnv of s3/s3_integration_test.go, smb/smb_integration_test.go and
+# ftp/ftp_integration_test.go.
+REQUIRED="S3_ENDPOINT S3_BUCKET S3_ACCESS_KEY S3_SECRET_KEY SMB_HOST SMB_SHARE SMB_USER SMB_PASS FTP_HOST FTP_PORT FTP_USER FTP_PASS"
 
 # --- suite.sh exports them before `go test` runs. ---------------------------
 cat > "$SANDBOX/go" <<'STUB'

@@ -130,17 +130,18 @@ MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 # SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
 # guard (scripts/tests/suite-env.sh) can hold the two to each other.
 # shellcheck disable=SC2034  # read by servers.sh, which sources this file
-SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY"
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS"
 export_suite_env() {
     export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
     export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
     export S3_ACCESS_KEY="$S3_KEY" S3_SECRET_KEY="$S3_SECRET"
+    export FTP_HOST="$FTP_ADDR" FTP_PORT FTP_USER FTP_PASS
 }
 
 # Every driver whose integration tests are behind a build tag and need a
 # server. Without these tags most of each driver is never executed and the
 # default coverage number reports it as untested.
-INTEGRATION_TAGS="${INTEGRATION_TAGS:-smb_integration,s3_integration}"
+INTEGRATION_TAGS="${INTEGRATION_TAGS:-smb_integration,s3_integration,ftp_integration}"
 
 # The drivers that build as a c-archive. THIS LIST AND chores.yml's DRIVERS
 # MUST AGREE — scripts/cabi.sh builds one harness per name here, and the
