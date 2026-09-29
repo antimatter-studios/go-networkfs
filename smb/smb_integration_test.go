@@ -47,7 +47,12 @@ func requireEnv(t *testing.T) map[string]string {
 		}
 	}
 	if len(missing) > 0 {
-		t.Skipf("SMB integration skipped: set %s", strings.Join(missing, ", "))
+		// A FAILURE, NOT A SKIP: the smb_integration tag already says there
+		// is a server, so a missing address is a rig bug or a hand run, and a
+		// skip would report either as a pass. Issue #33.
+		t.Fatalf("SMB integration cannot run: %s unset. Run `chore test:smb` "+
+			"(or `chore test`), which starts Samba and exports them.",
+			strings.Join(missing, ", "))
 	}
 	return cfg
 }
