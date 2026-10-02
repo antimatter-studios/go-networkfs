@@ -2,12 +2,12 @@
 //
 // WHY THESE FUNCTIONS. An S3 key is an opaque byte string, so the server puts
 // no constraint on what comes back from a listing: a key may hold a newline, a
-// NUL, a run of separators, a leading "..", or nothing at all. normPath and
-// toKey are what stand between that and the rest of the driver, and they are
+// NUL, a run of separators, a leading "..", or nothing at all. fsutil.NormPath
+// and toKey are what stand between that and the rest of the driver, and they are
 // pure functions of a string, which is what makes them the cheapest real fuzz
 // surface this package has.
 //
-// WHAT IS ASSERTED. Idempotence, because normPath's result is fed back through
+// WHAT IS ASSERTED. Idempotence, because NormPath's result is fed back through
 // the driver's own helpers and a normalisation whose answer depended on how
 // many times it had run would be a bug nobody reads twice; and CONTAINMENT for
 // toKey, because a configured prefix is the only thing keeping one mount's
@@ -17,38 +17,10 @@
 package s3
 
 import (
+	"github.com/christhomas/go-networkfs/pkg/fsutil"
 	"strings"
 	"testing"
 )
-
-// normPath must be idempotent and must always produce an absolute path with no
-// trailing separator.
-func FuzzNormPath(f *testing.F) {
-	f.Add("")
-	f.Add("/")
-	f.Add("a")
-	f.Add("/a/b/")
-	f.Add("/a/b///")
-	f.Add("//")
-	f.Add("../../etc")
-	f.Add("\x00")
-	f.Add(strings.Repeat("/", 2048))
-
-	f.Fuzz(func(t *testing.T, path string) {
-		once := normPath(path)
-		twice := normPath(once)
-
-		if once != twice {
-			t.Fatalf("normPath is not idempotent: %q -> %q -> %q", path, once, twice)
-		}
-		if !strings.HasPrefix(once, "/") {
-			t.Fatalf("normPath(%q) = %q, which is not absolute", path, once)
-		}
-		if len(once) > 1 && strings.HasSuffix(once, "/") {
-			t.Fatalf("normPath(%q) = %q, which keeps a trailing separator", path, once)
-		}
-	})
-}
 
 // normalizePrefix must produce "" or something ending in exactly one
 // separator, and must be idempotent — it is applied to configuration once at
@@ -86,7 +58,7 @@ func FuzzNormalizePrefix(f *testing.F) {
 //
 // ListDir turns an object key into a path by putting a separator in front of
 // the part after the prefix; every other method turns a path back into a key
-// with toKey(normPath(path)). Those two have to agree, or a listing names
+// with toKey(fsutil.NormPath(path)). Those two have to agree, or a listing names
 // entries that cannot then be opened — and the key is chosen by the SERVER,
 // not by any caller here, so "nobody would name an object that" is not an
 // argument available.
@@ -116,10 +88,10 @@ func FuzzKeyPathRoundTrip(f *testing.F) {
 
 		// What ListDir would build for an object at d.prefix + key.
 		path := "/" + key
-		got := d.toKey(normPath(path))
+		got := d.toKey(fsutil.NormPath(path))
 
 		if !strings.HasPrefix(got, d.prefix) {
-			t.Fatalf("toKey(normPath(%q)) = %q with prefix %q, which is outside the mount",
+			t.Fatalf("toKey(fsutil.NormPath(%q)) = %q with prefix %q, which is outside the mount",
 				path, got, d.prefix)
 		}
 		want := d.prefix + key

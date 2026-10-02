@@ -3,6 +3,7 @@
 package gdrive
 
 import (
+	"github.com/christhomas/go-networkfs/pkg/fsutil"
 	"strings"
 	"testing"
 
@@ -38,7 +39,7 @@ func TestExportMimeFor(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// normPath
+// fsutil.NormPath, as this driver uses it
 // ---------------------------------------------------------------------------
 
 func TestNormPath(t *testing.T) {
@@ -61,28 +62,11 @@ func TestNormPath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := normPath(tc.in)
+			got := fsutil.NormPath(tc.in)
 			if got != tc.want {
-				t.Fatalf("normPath(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Fatalf("fsutil.NormPath(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
-	}
-}
-
-// TestNormPathDoubleSlashOnly documents current observed behaviour of
-// normPath on a "//" input. The early-return clause only matches the exact
-// "/" string, so "//" falls through and TrimRight strips both slashes,
-// returning "". This is arguably a bug (callers treat the empty string as
-// "not a path") but it is the function's current contract, so the test
-// pins it. If you change the contract, update the expected value here.
-func TestNormPathDoubleSlashOnly(t *testing.T) {
-	got := normPath("//")
-	if got != "" {
-		t.Logf("normPath(\"//\") = %q; previously observed = %q", got, "")
-	}
-	// Pin current behaviour so regressions surface loudly.
-	if got != "" {
-		t.Fatalf("normPath(\"//\") = %q, want %q (current behaviour)", got, "")
 	}
 }
 

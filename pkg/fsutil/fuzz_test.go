@@ -153,3 +153,32 @@ func FuzzNormaliseRoot(f *testing.F) {
 		}
 	})
 }
+
+// NormPath must be idempotent and must always produce an absolute path with no
+// trailing separator.
+func FuzzNormPath(f *testing.F) {
+	f.Add("")
+	f.Add("/")
+	f.Add("a")
+	f.Add("/a/b/")
+	f.Add("/a/b///")
+	f.Add("//")
+	f.Add("../../etc")
+	f.Add("\x00")
+	f.Add(strings.Repeat("/", 2048))
+
+	f.Fuzz(func(t *testing.T, path string) {
+		once := NormPath(path)
+		twice := NormPath(once)
+
+		if once != twice {
+			t.Fatalf("NormPath is not idempotent: %q -> %q -> %q", path, once, twice)
+		}
+		if !strings.HasPrefix(once, "/") {
+			t.Fatalf("NormPath(%q) = %q, which is not absolute", path, once)
+		}
+		if len(once) > 1 && strings.HasSuffix(once, "/") {
+			t.Fatalf("NormPath(%q) = %q, which keeps a trailing separator", path, once)
+		}
+	})
+}
