@@ -214,10 +214,11 @@ vars:
   # v0.2.13 is the first release whose scripts/output-budget.sh answers
   # `--version` with the API string scripts/resolve-output-budget.sh checks
   # for, and the first in which a failing tier names its log instead of
-  # reading it aloud. This pin cannot go below it while the tiers read the
-  # wrapper from core; the same floor is written in the resolver, which is
-  # what prints it when a checkout is too old.
-  FS_CORE_REF: v0.2.13
+  # reading it aloud; the same floor is written in the resolver, which is
+  # what prints it when a checkout is too old. The pin is v0.2.18 because that
+  # is the first release whose scripts/core.sh serves ci-gate, which
+  # `check:ci-gate` runs.
+  FS_CORE_REF: v0.2.18
 
 tasks:
   # ---------------------------------------------------------------- host tools
@@ -345,7 +346,26 @@ tasks:
     # golangci-lint action used to provide; the version now lives in
     # scripts/tools.sh where a bump is a reviewed commit rather than a
     # workflow's `@latest` changing under a pull request that touched nothing.
-    cmds: ['scripts/lint.sh']
+    cmds:
+      - 'scripts/lint.sh'
+      - task: check:ci-gate
+
+  check:ci-gate:
+    desc: "ci-ok needs every job in ci.yml, and .github-guard requires ci-ok alone"
+    # rust-fs-core's ci-gate, run through scripts/core.sh as every repository
+    # in the family runs it -- this file keeps no copy, and family-check fails
+    # if one appears or scripts/core.sh drifts from core's. core.sh finds core
+    # through cargo when FS_CORE_ROOT is unset, and a Go module has no cargo
+    # answer, so FS_CORE_ROOT is the sibling the output-budget resolver already
+    # finds (`chore siblings` puts it there).
+    cmds:
+      - |
+        set -eu
+        budget="$(scripts/resolve-output-budget.sh)"
+        FS_CORE_ROOT="${budget%/scripts/output-budget.sh}"
+        export FS_CORE_ROOT
+        bash scripts/core.sh family-check
+        bash scripts/core.sh ci-gate
 
   vulncheck:
     desc: govulncheck, through the gate that fails on anything not consciously accepted

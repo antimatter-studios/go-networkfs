@@ -541,8 +541,8 @@ the same evidence:
 | `govulncheck` | `chore tools`, `chore vulncheck` |
 | `c-archive builds (ubuntu-latest)`, `(macos-latest)` | `chore archives:host`, `chore tui` |
 
-These job names are the required checks in `.github-guard`; renaming one
-without changing that file strands every merge.
+The one required check is `ci-ok`, which needs every job above; a job added
+here goes into its `needs:` too, and `chore lint` fails until it does.
 
 The pre-commit hook (`./scripts/install-hooks.sh`) runs the fast subset
 locally — `gofmt -s` + `go vet`. Bypass with `git commit --no-verify`.

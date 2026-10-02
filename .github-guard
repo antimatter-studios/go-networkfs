@@ -2,15 +2,19 @@
 # GitHub. See antimatter-studios/agent-skills, skill github-guard.
 #
 # [checks] required — what branch protection demands before main takes a merge.
-# Every job ci.yml produces is listed, because this repo has no single
-# always-run aggregate gate yet. `integration (containerised)` is the one that
-# drives the real servers, so a merge without it says nothing; when an
-# aggregate gate is added, replace these with it.
+#
+# `ci-ok` ALONE. It is ci.yml's always-run aggregate: it `needs:` every other
+# job (test, integration, lint, govulncheck, c-archive builds) and fails when
+# any of them failed, was cancelled or was skipped. This file used to name the
+# seven check-runs those jobs produce, by hand, and nothing compared the list
+# with ci.yml (#43): a job added there gated nothing, and a job renamed there
+# left a required check that never reports again, which GitHub reads as
+# pending forever and which blocks every merge.
+#
+# github-guard reads this from the DEFAULT BRANCH, so a pull request that
+# renames a job can never also be the one whose protection learns the new
+# name. Requiring the aggregate means it never has to. `chore lint` runs
+# rust-fs-core's ci-gate, which fails if this names anything but `ci-ok` or if
+# `ci-ok` stops needing every job.
 [checks]
-	required = lint
-	required = test (ubuntu-latest)
-	required = test (macos-latest)
-	required = c-archive builds (ubuntu-latest)
-	required = c-archive builds (macos-latest)
-	required = integration (containerised)
-	required = govulncheck
+	required = ci-ok
