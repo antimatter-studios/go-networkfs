@@ -30,6 +30,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # The chore scripts/ci-install-chore.sh installs, as in ci.yml. Without it
+  # the install stops before anything runs, which every nightly did from #32
+  # until this line (#38; scripts/tests/workflow-steps-have-their-inputs.sh).
+  CHORE_VERSION: "0.11.0"
+
 jobs:
   fuzz:
     name: fuzz (explorer)
@@ -58,5 +64,5 @@ jobs:
           name: fuzz-findings
           path: |
             tmp/logs/
-            '**/testdata/fuzz/**'
+            **/testdata/fuzz/**
           if-no-files-found: ignore
