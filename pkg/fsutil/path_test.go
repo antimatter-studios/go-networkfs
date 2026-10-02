@@ -21,3 +21,33 @@ func TestNameFromPath(t *testing.T) {
 		}
 	}
 }
+
+// NormPath canonicalises: "" and "/" -> "/"; otherwise ensure leading
+// slash and trim trailing slashes.
+func TestNormPath(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", "/"},
+		{"/", "/"},
+		{"/foo", "/foo"},
+		{"/foo/", "/foo"},
+		{"/foo/bar", "/foo/bar"},
+		{"/foo/bar/", "/foo/bar"},
+		{"/foo/bar///", "/foo/bar"},
+		{"//", "/"},
+		{"///", "/"},
+		{"foo", "/foo"},
+		{"foo/", "/foo"},
+		{"foo/bar", "/foo/bar"},
+		{"foo/bar/", "/foo/bar"},
+		{"/a/b/c.txt", "/a/b/c.txt"},
+		{"/日本語", "/日本語"},
+		{"日本語/café", "/日本語/café"},
+	}
+	for _, c := range cases {
+		if got := NormPath(c.in); got != c.want {
+			t.Errorf("NormPath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 // onedrive/onedrive_test.go - Unit tests for pure helpers and driver surface.
 //
 // These tests cover:
-//   - path helpers (graphPath, normPath, joinPath, splitParent)
+//   - path helpers (graphPath, fsutil.NormPath, joinPath, splitParent)
 //   - retry policy (shouldRetry, backoff)
 //   - body-reader nil guard (bodyReaderOrNil)
 //   - driveItem.toFileInfo parsing
@@ -14,6 +14,7 @@ package onedrive
 
 import (
 	"bytes"
+	"github.com/christhomas/go-networkfs/pkg/fsutil"
 	"io"
 	"net/http"
 	"strings"
@@ -65,7 +66,7 @@ func TestGraphPathSlashesAreSeparators(t *testing.T) {
 	}
 }
 
-// ---------- normPath ------------------------------------------------------
+// ---------- fsutil.NormPath -----------------------------------------------
 
 func TestNormPath(t *testing.T) {
 	tests := []struct {
@@ -82,9 +83,9 @@ func TestNormPath(t *testing.T) {
 		{"/café", "/café"},
 	}
 	for _, tt := range tests {
-		got := normPath(tt.in)
+		got := fsutil.NormPath(tt.in)
 		if got != tt.want {
-			t.Errorf("normPath(%q) = %q, want %q", tt.in, got, tt.want)
+			t.Errorf("fsutil.NormPath(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }

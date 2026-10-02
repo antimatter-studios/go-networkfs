@@ -149,7 +149,7 @@ func (d *GDriveDriver) Stat(mountID int, path string) (api.FileInfo, error) {
 		return api.FileInfo{}, api.ErrNotConnected
 	}
 
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	if p == "/" {
 		return api.FileInfo{Name: "", Path: "/", IsDir: true}, nil
 	}
@@ -191,7 +191,7 @@ func (d *GDriveDriver) ListDir(mountID int, path string) ([]api.FileInfo, error)
 		return nil, api.ErrNotConnected
 	}
 
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	parentID, err := d.resolvePath(p)
 	if err != nil {
 		return nil, err
@@ -263,7 +263,7 @@ func (d *GDriveDriver) OpenFile(mountID int, path string) (io.ReadCloser, error)
 		return nil, api.ErrNotConnected
 	}
 
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	driveID, err := d.resolvePath(p)
 	if err != nil {
 		return nil, err
@@ -321,7 +321,7 @@ func (d *GDriveDriver) CreateFile(mountID int, path string) (io.WriteCloser, err
 	if !d.connected {
 		return nil, api.ErrNotConnected
 	}
-	return &gdriveWriter{driver: d, path: normPath(path)}, nil
+	return &gdriveWriter{driver: d, path: fsutil.NormPath(path)}, nil
 }
 
 // Mkdir creates a directory.
@@ -330,7 +330,7 @@ func (d *GDriveDriver) Mkdir(mountID int, path string) error {
 		return api.ErrNotConnected
 	}
 
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	parent, name := splitParent(p)
 	parentID, err := d.resolvePath(parent)
 	if err != nil {
@@ -362,7 +362,7 @@ func (d *GDriveDriver) Remove(mountID int, path string) error {
 		return api.ErrNotConnected
 	}
 
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	driveID, err := d.resolvePath(p)
 	if err != nil {
 		return err
@@ -383,8 +383,8 @@ func (d *GDriveDriver) Rename(mountID int, oldPath, newPath string) error {
 		return api.ErrNotConnected
 	}
 
-	op := normPath(oldPath)
-	np := normPath(newPath)
+	op := fsutil.NormPath(oldPath)
+	np := fsutil.NormPath(newPath)
 
 	driveID, err := d.resolvePath(op)
 	if err != nil {
@@ -434,7 +434,7 @@ func (d *GDriveDriver) GetThumbnail(mountID int, path string, sizePx int) ([]byt
 		return nil, api.ErrNotConnected
 	}
 
-	driveID, err := d.resolvePath(normPath(path))
+	driveID, err := d.resolvePath(fsutil.NormPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +778,7 @@ func (d *GDriveDriver) apiDELETE(urlStr string) error {
 // uploadFile performs a multipart upload, replacing an existing file at
 // the same path if one exists, otherwise creating a new one.
 func (d *GDriveDriver) uploadFile(path string, data []byte) error {
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 
 	existingID := ""
 	if id, err := d.resolvePath(p); err == nil {
@@ -862,7 +862,7 @@ func (d *GDriveDriver) uploadFile(path string, data []byte) error {
 // resolvePath walks the path segment-by-segment, consulting the cache
 // and falling back to Drive queries by (parent, name).
 func (d *GDriveDriver) resolvePath(path string) (string, error) {
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	if p == "/" || p == "" {
 		return "root", nil
 	}
@@ -908,18 +908,8 @@ func (d *GDriveDriver) resolvePath(path string) (string, error) {
 	return currentID, nil
 }
 
-func normPath(path string) string {
-	if path == "" || path == "/" {
-		return "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return strings.TrimRight(path, "/")
-}
-
 func splitParent(path string) (parent, name string) {
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	if p == "/" {
 		return "/", ""
 	}

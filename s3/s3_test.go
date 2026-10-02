@@ -42,34 +42,6 @@ func TestNormalizePrefix(t *testing.T) {
 	}
 }
 
-// normPath canonicalises: "" and "/" -> "/"; otherwise ensure leading
-// slash and trim trailing slashes.
-func TestNormPath(t *testing.T) {
-	cases := []struct {
-		in, want string
-	}{
-		{"", "/"},
-		{"/", "/"},
-		{"/foo", "/foo"},
-		{"/foo/", "/foo"},
-		{"/foo/bar", "/foo/bar"},
-		{"/foo/bar/", "/foo/bar"},
-		{"/foo/bar///", "/foo/bar"},
-		{"foo", "/foo"},
-		{"foo/", "/foo"},
-		{"foo/bar", "/foo/bar"},
-		{"foo/bar/", "/foo/bar"},
-		{"/a/b/c.txt", "/a/b/c.txt"},
-		{"/日本語", "/日本語"},
-		{"日本語/café", "/日本語/café"},
-	}
-	for _, c := range cases {
-		if got := normPath(c.in); got != c.want {
-			t.Errorf("normPath(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // nameFromPath returns the right-most non-empty path segment.
 // toKey: strips the single leading "/" from its argument and prepends
 // d.prefix. When d.prefix is "" the result is just the path without

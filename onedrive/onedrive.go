@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/christhomas/go-networkfs/pkg/fsutil"
 	"io"
 	"net/http"
 	"net/url"
@@ -139,7 +140,7 @@ func (d *OneDriveDriver) Stat(mountID int, path string) (api.FileInfo, error) {
 	if !d.connected {
 		return api.FileInfo{}, api.ErrNotConnected
 	}
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	resp, err := d.do(context.Background(), "GET", d.itemURL(p, ""), nil, nil)
 	if err != nil {
 		return api.FileInfo{}, err
@@ -156,7 +157,7 @@ func (d *OneDriveDriver) ListDir(mountID int, path string) ([]api.FileInfo, erro
 	if !d.connected {
 		return nil, api.ErrNotConnected
 	}
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	next := d.itemURL(p, "/children") + "?$top=1000"
 
 	var out []api.FileInfo
@@ -191,7 +192,7 @@ func (d *OneDriveDriver) OpenFile(mountID int, path string) (io.ReadCloser, erro
 	if !d.connected {
 		return nil, api.ErrNotConnected
 	}
-	resp, err := d.do(context.Background(), "GET", d.itemURL(normPath(path), "/content"), nil, nil)
+	resp, err := d.do(context.Background(), "GET", d.itemURL(fsutil.NormPath(path), "/content"), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -202,14 +203,14 @@ func (d *OneDriveDriver) CreateFile(mountID int, path string) (io.WriteCloser, e
 	if !d.connected {
 		return nil, api.ErrNotConnected
 	}
-	return &uploadWriter{driver: d, path: normPath(path)}, nil
+	return &uploadWriter{driver: d, path: fsutil.NormPath(path)}, nil
 }
 
 func (d *OneDriveDriver) Mkdir(mountID int, path string) error {
 	if !d.connected {
 		return api.ErrNotConnected
 	}
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	parent, name := splitParent(p)
 	body, _ := json.Marshal(map[string]interface{}{
 		"name":                              name,
@@ -229,7 +230,7 @@ func (d *OneDriveDriver) Remove(mountID int, path string) error {
 	if !d.connected {
 		return api.ErrNotConnected
 	}
-	resp, err := d.do(context.Background(), "DELETE", d.itemURL(normPath(path), ""), nil, nil)
+	resp, err := d.do(context.Background(), "DELETE", d.itemURL(fsutil.NormPath(path), ""), nil, nil)
 	if err != nil {
 		return err
 	}
@@ -243,8 +244,8 @@ func (d *OneDriveDriver) Rename(mountID int, oldPath, newPath string) error {
 	if !d.connected {
 		return api.ErrNotConnected
 	}
-	op := normPath(oldPath)
-	np := normPath(newPath)
+	op := fsutil.NormPath(oldPath)
+	np := fsutil.NormPath(newPath)
 	oldParent, _ := splitParent(op)
 	newParent, newName := splitParent(np)
 
@@ -279,7 +280,7 @@ func (d *OneDriveDriver) GetThumbnail(mountID int, path string, sizePx int) ([]b
 	if !d.connected {
 		return nil, api.ErrNotConnected
 	}
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	resp, err := d.do(context.Background(), "GET", d.itemURL(p, "/thumbnails"), nil, nil)
 	if err != nil {
 		return nil, err
@@ -814,7 +815,7 @@ func mapHTTPError(status int, body []byte) error {
 // /me/drive/root:/something. Each segment is escaped individually so that
 // slashes remain literal separators.
 func graphPath(path string) string {
-	trimmed := strings.Trim(normPath(path), "/")
+	trimmed := strings.Trim(fsutil.NormPath(path), "/")
 	if trimmed == "" {
 		return ""
 	}
@@ -838,16 +839,6 @@ func (d *OneDriveDriver) itemURL(path, suffix string) string {
 	return d.base() + "/me/drive/root" + gp + ":" + suffix
 }
 
-func normPath(path string) string {
-	if path == "" || path == "/" {
-		return "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return strings.TrimRight(path, "/")
-}
-
 func joinPath(dir, name string) string {
 	if dir == "/" {
 		return "/" + name
@@ -856,7 +847,7 @@ func joinPath(dir, name string) string {
 }
 
 func splitParent(path string) (parent, name string) {
-	p := normPath(path)
+	p := fsutil.NormPath(path)
 	if p == "/" {
 		return "/", ""
 	}
