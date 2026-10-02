@@ -18,10 +18,15 @@ name: CI
 #                             gate, not a bare `govulncheck ./...`.
 #   c-archive builds (os)     `chore archives:host`, `chore tui` — that the
 #                             c-archive path still links on each platform.
+#   ci-ok                     the one required check: `if: always()`, it needs
+#                             every job above and fails unless each concluded
+#                             `success`.
 #
-# THE JOB NAMES ARE LOAD-BearING: they are the required checks in `.github-guard`
-# on the default branch. Renaming one here without changing that file strands
-# every merge.
+# ONLY `ci-ok` IS REQUIRED, so the jobs behind it can be renamed, split or
+# given a new matrix leg without leaving a required check that never reports.
+# What keeps that true is rust-fs-core's ci-gate, run by `chore lint`: it fails
+# if a job here is missing from `ci-ok`'s `needs:`, if `ci-ok` loses
+# `if: always()`, or if `.github-guard` names anything but `ci-ok`.
 #
 # THE TIERS NEED A SIBLING. scripts/tier.sh runs the suite through
 # rust-fs-core's scripts/output-budget.sh, which is NOT committed here: a
@@ -163,6 +168,11 @@ jobs:
       - name: chore tools
         run: chore tools
 
+      # `chore lint` runs rust-fs-core's ci-gate and family-check through
+      # scripts/core.sh, so it needs the pinned sibling like the tiers do.
+      - name: chore siblings
+        run: chore siblings
+
       - name: chore lint
         run: chore lint
 
@@ -218,3 +228,28 @@ jobs:
 
       - name: chore tui
         run: chore tui
+
+  ci-ok:
+    name: ci-ok
+    # THE ONE REQUIRED CHECK (#43). `.github-guard` named the seven check-runs
+    # by hand, so a job added here gated nothing and a job renamed here left a
+    # required check that never reports, which blocks every merge with nothing
+    # red to point at. It runs no work of its own: it is a claim about the
+    # other jobs, judged from `needs` as a whole, so a job added to `needs:`
+    # is judged without editing this step.
+    if: always()
+    needs: [test, integration, lint, vulncheck, build-archives]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every gating job must have concluded success
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad="$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")')"
+          if [ -n "$bad" ]; then
+            echo "::error::not 'success': $bad -- failure, cancellation and skipping all mean the gate did not run to completion"
+            exit 1
+          fi
+          echo "all gating jobs succeeded"

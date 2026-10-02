@@ -190,9 +190,9 @@ chore servers:up      # bring the test servers up
 chore servers:down
 ```
 
-CI runs `test`, `integration`, `lint`, `vulncheck` and `build-archives`.
-`.github-guard` currently requires **`lint`** alone, which is narrower than the
-family's `ci-ok` aggregate — see the note below.
+CI runs `test`, `integration`, `lint`, `vulncheck` and `build-archives`, and
+`ci-ok`, the aggregate that needs all of them. `.github-guard` requires
+**`ci-ok`** alone — see the note below.
 
 ## Traps that have already cost time
 
@@ -212,11 +212,14 @@ Each of these is an open issue; read it before you trip over it.
 
 ## What gates a merge
 
-`.github-guard` requires `lint`. Every other repository in this family has moved
-to a single `ci-ok` aggregate that `needs:` every job, so that renaming or
-splitting a job cannot silently change what gates a merge. This repository has
-not; bringing it across is worth doing and is a change with its own failure mode
-to get right.
+`.github-guard` requires `ci-ok` alone, as every repository in this family
+does: `ci-ok` is `if: always()`, `needs:` every job in `ci.yml` and fails unless
+each one concluded `success`, so renaming or splitting a job cannot silently
+change what gates a merge. `chore lint` (`check:ci-gate`) holds both halves:
+it runs rust-fs-core's ci-gate through `scripts/core.sh`, against the
+`rust-fs-core` sibling `chore siblings` checks out, and fails if a job is
+missing from `ci-ok`'s `needs:` or the guard names anything else. A job added
+to `ci.yml` goes into `ci-ok`'s `needs:` in the same change.
 
 Judging mergeability from check **conclusions** is unreliable: an in-progress
 `CheckRun` reports its conclusion as an empty string, and a `StatusContext` has
