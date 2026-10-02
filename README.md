@@ -227,6 +227,14 @@ when they should land, not by theme.
 
 ## Changelog
 
+### v0.1.5 — 2026-10-02
+
+- A path of `//` is the root in every driver: it normalised to `""`, which
+  S3 could turn into the bucket root and Google Drive panicked on (#41).
+  `joinPath("//", …)` no longer doubles the separator.
+- Every driver names the root `""`; FTP, SFTP and WebDAV said `/`.
+- The nightly fuzz explorer runs. See [CHANGELOG.md](CHANGELOG.md).
+
 Recent commits (most recent first; see [CHANGELOG.md](CHANGELOG.md) for
 the curated history):
 

@@ -5,6 +5,36 @@ ISO-8601. Changes under `Unreleased` haven't been tagged yet.
 
 ## Unreleased
 
+## v0.1.5 — 2026-10-02
+
+### Fixed
+- **`normPath("//")` is `/`, and `joinPath("//", "0")` is `/0`.** The first
+  returned the empty string, which is neither absolute nor idempotent and
+  addressed the bucket root when the S3 driver turned it into a key; the
+  second doubled the separator. Both were found by the fuzz targets that
+  arrived with them (#32).
+- **Google Drive and OneDrive normalise `//` to `/` too, and Google Drive
+  no longer panics on it** (#41). #32 fixed only S3's copy of `normPath`;
+  the other two still returned `""`, and Google Drive's `splitParent` then
+  sliced past its end inside the cgo library. All three use one
+  `fsutil.NormPath` now.
+- **Every driver gives the same name for the root: the empty string.** FTP,
+  SFTP and WebDAV returned `/`, while S3, Google Drive and Dropbox returned
+  `""`, so a caller could tell which backend answered by asking.
+- **The nightly fuzz explorer runs, and keeps what it finds** (#38). It had
+  stopped at installing chore on every scheduled run, and its upload path
+  could not match a crashing input.
+
+### Added
+- Fuzz targets over the code a remote peer's bytes reach: the path helpers,
+  the S3 key mapping and Google Drive's token response (#32).
+
+No exported C function changed.
+
+## Before v0.1.4 — merged from upstream
+
+These shipped in the v0.1.x tags; they sat under Unreleased until now.
+
 ### Added
 - **Three new drivers merged from upstream**: Google Drive (type id 6),
   S3 (type id 7), OneDrive (type id 8). All three refresh OAuth tokens
