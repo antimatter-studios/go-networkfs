@@ -189,6 +189,11 @@ jobs:
       - name: chore tools
         run: chore tools
 
+      # `chore vulncheck` runs rust-fs-core's agents-core check in place, so
+      # it needs the pinned sibling like the tiers do.
+      - name: chore siblings
+        run: chore siblings
+
       # Not `govulncheck ./...` directly: the gate fails on anything this
       # project calls that has not been consciously accepted, and the accepted
       # list carries the reason each one is there. A check that is permanently
