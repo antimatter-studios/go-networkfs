@@ -539,14 +539,12 @@ the same evidence:
 The one required check is `ci-ok`, which needs every job above; a job added
 here goes into its `needs:` too, and `chore lint` fails until it does.
 
-The pre-commit hook (`./scripts/install-hooks.sh`) runs the fast subset
-locally — `gofmt -s` + `go vet`. Bypass with `git commit --no-verify`.
-
-It installs into the hooks **directory**, never by pointing `core.hooksPath`
-at the tracked one: that value replaces `.git/hooks` wholesale, so setting it
-switches off every hook installed there — including github-guard's, which is
-the thing refusing a commit on `main`. Where github-guard's dispatcher is
-present the checks go into `.git/hooks/pre-commit.d/` and both sets run.
+The git guards are github-guard's, installed per clone into `.git/hooks` with
+`~/.claude/skills/github-guard/install.sh .`: `gofmt` and `go vet` before a
+commit, `go test` before a push, no merge commits, and the changelog check on a
+version tag. Nothing hook-like is committed to this repository: a hooks
+directory in the working tree runs whatever the last merged change put there,
+while `.git/hooks` is per clone and no commit can reach it.
 
 ## Docs
 
