@@ -102,16 +102,16 @@ chore_min_version: 0.6.0
 #   OUTPUT_BUDGET_VERBOSE and OUTPUT_BUDGET_FAIL_TAIL now — the names moved
 #   with the script when rust-fs-core took ownership of it. The rename fails
 #   silently wherever it was missed (nothing errors; --verbose simply stops
-#   working), so scripts/tier.sh carries the mapping in a comment block for
-#   whoever greps for the old name.
+#   working), so rust-fs-core's output-budget.sh names the replacement on
+#   stderr when it sees an old one.
 #
 #   Each tier carries an OUTPUT BUDGET: a line and a byte count that fails the
 #   run with status 65 when the tier prints more than it is allowed to — told
-#   apart from a failing suite by that status. scripts/tier.sh applies it, and
-#   the script that does the work is rust-fs-core's scripts/output-budget.sh,
-#   resolved at RUN TIME from the pinned sibling `chore siblings` maintains.
-#   THERE IS NO COPY OF IT IN THIS REPOSITORY, deliberately: there was one,
-#   vendored, and a copy nothing compares is a copy that drifts.
+#   apart from a failing suite by that status. rust-fs-core's tier.sh and
+#   output-budget.sh apply it, run IN PLACE from the pinned sibling
+#   `chore siblings` maintains. THERE IS NO COPY OF EITHER IN THIS
+#   REPOSITORY, deliberately: there was one, vendored, and a copy nothing
+#   compares is a copy that drifts.
 #
 #     tier      measured            budget           headroom, and why
 #     deps       0-200 / 0-25,000    400 /  40,000   cold-cache downloads, so
@@ -140,11 +140,10 @@ chore_min_version: 0.6.0
 #     scripts      31 /   1,071       40 /   1,600   ten guards and two verdicts.
 #                                                    A guard that passes prints
 #                                                    ONE line, so a new one is
-#                                                    one more — except
-#                                                    output-budget-resolver,
-#                                                    which prints its thirteen
-#                                                    checks and is most of this
-#                                                    row. Measured on an arm64
+#                                                    one more. (The resolver
+#                                                    guard, thirteen of these
+#                                                    lines, is gone with the
+#                                                    resolver.) Measured on an arm64
 #                                                    Linux host on 2026-09-28,
 #                                                    on a tree carrying every
 #                                                    branch open against #6,
@@ -205,37 +204,27 @@ vars:
   DRIVERS: ftp sftp smb dropbox webdav gdrive s3 onedrive
 
   # THE ONE SIBLING THIS REPOSITORY HAS, and the only reason it has one: the
-  # canonical output-budget wrapper lives in rust-fs-core and is not copied
-  # here. A full URL rather than a repo name, because this family spans two
+  # family's scripts live in rust-fs-core and run in place from it; none is
+  # copied here. A full URL rather than a repo name, because this family spans two
   # GitHub organisations and a URL rebuilt from a name points at a repository
   # that does not exist for exactly the ones that are not in the org you
   # guessed.
   FS_CORE_URL: https://github.com/antimatter-studios/rust-fs-core.git
-  # v0.2.13 is the first release whose scripts/output-budget.sh answers
-  # `--version` with the API string scripts/resolve-output-budget.sh checks
-  # for, and the first in which a failing tier names its log instead of
-  # reading it aloud; the same floor is written in the resolver, which is
-  # what prints it when a checkout is too old. The pin is v0.2.18 because that
-  # is the first release whose scripts/core.sh serves ci-gate, which
-  # `check:ci-gate` runs.
-  FS_CORE_REF: v0.2.18
+  # v0.3.3 is the first release whose scripts all run in place from this
+  # checkout, the tier runner included; moving the pin is how they are
+  # upgraded.
+  FS_CORE_REF: v0.3.3
 
 tasks:
   # ---------------------------------------------------------------- host tools
 
   siblings:
-    desc: "Clone or update the pinned rust-fs-core checkout the test tiers read their output-budget wrapper from"
-    # WHY THERE IS A SIBLING AT ALL. scripts/output-budget.sh used to be
-    # committed here, vendored from fs-linux-test-harness, with a comment
-    # asking whoever changed one copy to remember the other. Nothing checked,
-    # and the family ended up with three copies reached four ways. The wrapper
-    # belongs to rust-fs-core now and is resolved at run time from this
-    # checkout — see scripts/resolve-output-budget.sh, which refuses loudly
-    # rather than falling back to anything local.
-    #
-    # The Rust drivers get the same file from cargo, which has already
-    # resolved am-fs-core for them. A Go module has no such answer, so a
-    # checkout is what there is.
+    desc: "Clone or update the pinned rust-fs-core checkout whose scripts the tiers and checks run in place"
+    # WHY THERE IS A SIBLING AT ALL. output-budget.sh used to be committed
+    # here, vendored from fs-linux-test-harness, with a comment asking
+    # whoever changed one copy to remember the other. Nothing checked, and
+    # the family ended up with three copies reached four ways. The family's
+    # scripts belong to rust-fs-core and run in place from this checkout.
     cmds:
       - |
         set -eu
@@ -307,6 +296,19 @@ tasks:
           echo "          It is one checkout shared by every project here — move it yourself." >&2
           exit 1
         fi
+      - |
+        set -eu
+        # A WORKTREE GETS A LINK, NOT A COPY. Every call here runs core's
+        # scripts in place from ../rust-fs-core, and beside a worktree that is
+        # not the machine's sibling. Link it there, so the one copy above is
+        # the one every checkout runs.
+        common="$(git rev-parse --path-format=absolute --git-common-dir)"
+        dir="$(cd "$common/../.." && pwd)/rust-fs-core"
+        here="$(cd .. && pwd)/rust-fs-core"
+        if [ "$here" != "$dir" ] && [ ! -e "$here" ]; then
+          ln -s "$dir" "$here"
+          echo "siblings: linked $here to $dir"
+        fi
 
   tools:
     desc: "Install and verify what the HOST needs, pinned: golangci-lint and govulncheck, into tmp/bin"
@@ -327,7 +329,7 @@ tasks:
     # It carries a budget of its own for the same reason, and a loose one: what
     # it prints depends on how cold the cache is, which is not a property of
     # this repository. A warm cache prints nothing at all.
-    cmds: ['scripts/tier.sh deps deps 400 40000 -- go mod download']
+    cmds: ['bash ../rust-fs-core/scripts/tier.sh deps deps 400 40000 -- go mod download']
 
   deps:verify:
     desc: Check the downloaded modules against go.sum (the first thing CI does)
@@ -352,20 +354,12 @@ tasks:
 
   check:ci-gate:
     desc: "ci-ok needs every job in ci.yml, and .github-guard requires ci-ok alone"
-    # rust-fs-core's ci-gate, run through scripts/core.sh as every repository
-    # in the family runs it -- this file keeps no copy, and family-check fails
-    # if one appears or scripts/core.sh drifts from core's. core.sh finds core
-    # through cargo when FS_CORE_ROOT is unset, and a Go module has no cargo
-    # answer, so FS_CORE_ROOT is the sibling the output-budget resolver already
-    # finds (`chore siblings` puts it there).
+    # rust-fs-core's ci-gate, run in place from ../rust-fs-core as every
+    # repository in the family runs it -- this file keeps no copy, and
+    # family-check fails if one appears (`chore siblings` puts core there).
     cmds:
-      - |
-        set -eu
-        budget="$(scripts/resolve-output-budget.sh)"
-        FS_CORE_ROOT="${budget%/scripts/output-budget.sh}"
-        export FS_CORE_ROOT
-        bash scripts/core.sh family-check
-        bash scripts/core.sh ci-gate
+      - bash ../rust-fs-core/scripts/family-check.sh
+      - bash ../rust-fs-core/scripts/ci-gate.sh
 
   vulncheck:
     desc: govulncheck, through the gate that fails on anything not consciously accepted
@@ -374,7 +368,7 @@ tasks:
     # nothing at all. The gate names what is accepted and why, so anything new
     # still stops the build. The accepted list is currently empty, on purpose.
     cmds:
-      - scripts/agents-core-check.sh
+      - bash ../rust-fs-core/scripts/agents-core-check.sh
       - 'scripts/tools.sh --check'
       - 'PATH="$PWD/tmp/bin:$PATH" scripts/govulncheck-gate.sh'
 
@@ -388,19 +382,14 @@ tasks:
 
   test:scripts:
     desc: "The shell guards in scripts/tests — the contracts no Go test can reach"
-    # WHAT A GO TEST CANNOT REACH. scripts/tier.sh's refusals are the reason
-    # this task exists: the wrapper it runs the suite through belongs to
-    # rust-fs-core and is resolved at run time, so "the sibling is missing" and
-    # "the sibling holds something else" are real, reachable states of this
-    # repository that no Go test can put it into. The guard drives both through
-    # FS_CORE_ROOT and proves the tier contract itself — a quiet pass, the
-    # command's own exit status, and 65 for a breached budget.
+    # WHAT A GO TEST CANNOT REACH: the workflows, the scripts and the
+    # servers' wiring, which are shell and YAML rather than Go.
     #
     # It is NOT wired into test:native or test:ci, deliberately: those two run
-    # inside scripts/tier.sh already, and a guard that drives tier.sh from
+    # inside ../rust-fs-core/scripts/tier.sh already, and a guard that drives tier.sh from
     # inside a tier is three deep for no gain. CI runs it as its own step.
     cmds:
-      - 'scripts/tier.sh test:scripts scripts 40 1600 -- scripts/tests/run-all.sh'
+      - 'bash ../rust-fs-core/scripts/tier.sh test:scripts scripts 40 1600 -- scripts/tests/run-all.sh'
 
   test:unit:
     desc: "The tests that need no server and no container — what runs anywhere, on anything"
@@ -410,7 +399,7 @@ tasks:
     # credential or a network.
     cmds:
       - task: deps
-      - 'scripts/tier.sh test:unit unit 40 3000 -- go test -race -short ./...'
+      - 'bash ../rust-fs-core/scripts/tier.sh test:unit unit 40 3000 -- go test -race -short ./...'
 
   test:native:
     desc: "The suite on this host with the race detector and a coverage profile — still no containers"
@@ -423,7 +412,7 @@ tasks:
     # untested. `test:integration` produces the number that means something.
     cmds:
       - task: deps
-      - 'scripts/tier.sh test:native native 60 7000 -- go test ./... -race -covermode=atomic -coverprofile=coverage.out'
+      - 'bash ../rust-fs-core/scripts/tier.sh test:native native 60 7000 -- go test ./... -race -covermode=atomic -coverprofile=coverage.out'
       - 'go tool cover -func=coverage.out | tail -1'
 
   test:smb:
@@ -438,7 +427,7 @@ tasks:
     # however the tests end — a trap, because a failing test used to leave the
     # container running and the next run then failed on a bound port.
     cmds:
-      - 'scripts/with-servers.sh samba -- scripts/tier.sh test:smb smb 20 2000 -- go test -race -count=1 -tags=smb_integration -run Integration ./smb/...'
+      - 'scripts/with-servers.sh samba -- bash ../rust-fs-core/scripts/tier.sh test:smb smb 20 2000 -- go test -race -count=1 -tags=smb_integration -run Integration ./smb/...'
 
   test:s3:
     desc: "S3 driver integration tests against a throwaway stupid-simple-s3 — no Docker needed"
@@ -451,7 +440,7 @@ tasks:
     # sit on one Docker network for the runner to reach it by name. Same server,
     # same pinned version, both ways.
     cmds:
-      - 'scripts/with-servers.sh s3-native -- scripts/tier.sh test:s3 s3 20 2000 -- go test -race -count=1 -tags=s3_integration -run Integration ./s3/...'
+      - 'scripts/with-servers.sh s3-native -- bash ../rust-fs-core/scripts/tier.sh test:s3 s3 20 2000 -- go test -race -count=1 -tags=s3_integration -run Integration ./s3/...'
 
   test:cabi:
     desc: "The C ABI, exercised from C against real servers — the only caller that can reach three of its entry points"
@@ -461,7 +450,7 @@ tasks:
     # that is also exactly how a consumer uses it.
     cmds:
       - task: deps
-      - 'scripts/with-servers.sh all -- scripts/tier.sh test:cabi cabi 30 3000 -- scripts/cabi.sh all'
+      - 'scripts/with-servers.sh all -- bash ../rust-fs-core/scripts/tier.sh test:cabi cabi 30 3000 -- scripts/cabi.sh all'
 
   test:integration:
     desc: "Every driver that needs a server, on this host's toolchain, with one coverage profile over the lot"
@@ -470,7 +459,7 @@ tasks:
     # image build. `test` is what CI runs and what a bug report should quote.
     cmds:
       - task: deps
-      - 'scripts/with-servers.sh all -- scripts/tier.sh test:integration suite 50 35000 -- scripts/suite.sh'
+      - 'scripts/with-servers.sh all -- bash ../rust-fs-core/scripts/tier.sh test:integration suite 50 35000 -- scripts/suite.sh'
 
   test:ci:
     desc: "The suite with the servers ALREADY up — what runs inside the runner container"
@@ -479,7 +468,7 @@ tasks:
     # and you get the same run without the image build.
     cmds:
       - task: deps
-      - 'scripts/tier.sh test:ci suite 50 35000 -- scripts/suite.sh'
+      - 'bash ../rust-fs-core/scripts/tier.sh test:ci suite 50 35000 -- scripts/suite.sh'
 
   test:
     desc: "Everything CI runs: every server, the whole tagged suite and the C ABI, inside a container"
@@ -494,7 +483,7 @@ tasks:
     # thing this machine needs is Docker — no Go toolchain, no C compiler — and
     # the `integration (containerised)` job runs this exact task.
     cmds:
-      - 'scripts/tier.sh test docker 20 2000 -- scripts/docker-suite.sh'
+      - 'bash ../rust-fs-core/scripts/tier.sh test docker 20 2000 -- scripts/docker-suite.sh'
 
   fuzz:
     desc: "The fuzzing explorer: every Fuzz* target in turn, on a bounded budget"
@@ -510,7 +499,7 @@ tasks:
     #   chore fuzz -- 300       every target, 300s each
     #   chore fuzz -- 60 FuzzNormPath
     #
-    # NOT THROUGH scripts/tier.sh. `go test -fuzz` prints a progress line every
+    # NOT THROUGH ../rust-fs-core/scripts/tier.sh. `go test -fuzz` prints a progress line every
     # three seconds — twenty lines a minute a target — so a budget measured in
     # lines would say nothing about the run and everything about the clock.
     # fuzz.sh writes the whole thing to tmp/logs/fuzz.log and prints one line

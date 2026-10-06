@@ -19,16 +19,13 @@ cd "$REPO"
 
 # THE SIBLING IS MOUNTED, BECAUSE ../rust-fs-core DOES NOT EXIST IN THERE.
 #
-# The container runs `chore test:ci`, which runs scripts/tier.sh, which needs
-# rust-fs-core's output-budget.sh. Only this checkout is mounted, so the
-# sibling beside it is not there and the relative path resolves to /rust-fs-core
-# — a directory that has never existed in any of these images. Resolve it out
-# here, where it does exist, and hand the container the answer: FS_CORE_ROOT is
-# authoritative, so the inner tier looks exactly where it is told and nowhere
-# else. Read-only, because the suite has no business writing to a checkout
+# The container runs `chore test:ci`, which runs rust-fs-core's tier.sh in
+# place from ../rust-fs-core. This checkout is mounted at /src, so that path is
+# /rust-fs-core in there: the sibling beside this checkout is mounted exactly
+# there. Read-only, because the suite has no business writing to a checkout
 # every other project on the machine shares.
-CORE_BUDGET="$("$REPO/scripts/resolve-output-budget.sh")"
-CORE_ROOT="$(cd "$(dirname "$CORE_BUDGET")/.." && pwd)"
+CORE_ROOT="$(cd "$REPO/../rust-fs-core" 2>/dev/null && pwd)" \
+    || { echo "docker-suite.sh: no ../rust-fs-core beside this checkout; run 'chore siblings'." >&2; exit 1; }
 
 # shellcheck source=scripts/test-env.sh
 . "$REPO/scripts/test-env.sh"
@@ -73,5 +70,5 @@ docker run --rm --network "$TEST_NETWORK" \
     -e MOCK_ADDR=mockapi -e MOCK_PORT=8081 \
     -e OUTPUT_BUDGET_VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}" \
     -e CI="${CI:-}" -e GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \
-    -v "$CORE_ROOT":/fs-core:ro -e FS_CORE_ROOT=/fs-core \
+    -v "$CORE_ROOT":/rust-fs-core:ro \
     "$RUNNER_IMAGE" chore test:ci

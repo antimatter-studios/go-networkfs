@@ -34,7 +34,7 @@
 #
 # QUIET. `docker build` is the loud part, so it is built with -q and its output
 # kept for --verbose (OUTPUT_BUDGET_VERBOSE=1 — it was FLTH_VERBOSE until the
-# wrapper moved to rust-fs-core; see scripts/tier.sh). Container ids go
+# wrapper moved to rust-fs-core; see ../rust-fs-core/scripts/tier.sh). Container ids go
 # nowhere: a line naming the server and where it is listening is the useful
 # verdict.
 set -euo pipefail

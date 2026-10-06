@@ -10,7 +10,7 @@
 # no case in the build's switch was silently built with nothing), so the floor
 # is written down rather than assumed.
 #
-# `chore test:scripts` runs this under scripts/tier.sh, so its output is
+# `chore test:scripts` runs this under ../rust-fs-core/scripts/tier.sh, so its output is
 # budgeted like any other tier.
 set -uo pipefail
 

@@ -28,8 +28,8 @@ name: CI
 # if a job here is missing from `ci-ok`'s `needs:`, if `ci-ok` loses
 # `if: always()`, or if `.github-guard` names anything but `ci-ok`.
 #
-# THE TIERS NEED A SIBLING. scripts/tier.sh runs the suite through
-# rust-fs-core's scripts/output-budget.sh, which is NOT committed here: a
+# THE TIERS NEED A SIBLING. ../rust-fs-core/scripts/tier.sh runs the suite through
+# rust-fs-core's ../rust-fs-core/scripts/output-budget.sh, which is NOT committed here: a
 # copy that nothing compares is a copy that drifts, and this family had three
 # of them. `chore siblings` clones the pinned ref (chores.yml's FS_CORE_REF)
 # beside the checkout, so every job that runs a tier calls it first and no job
@@ -82,14 +82,12 @@ jobs:
         run: chore vet
 
       # The pinned rust-fs-core beside this checkout: `chore test:native` and
-      # `chore test:scripts` both go through scripts/tier.sh, which reads the
-      # output-budget wrapper from it and refuses when it is not there.
+      # `chore test:scripts` both run rust-fs-core's tier.sh in place from it.
       - name: chore siblings
         run: chore siblings
 
-      # BOTH platforms, because the resolver is the thing being proved and its
-      # two refusals are shell, where the platforms differ: macOS runners ship
-      # bash 3.2. A guard that only ever ran on ubuntu would be a guard that
+      # BOTH platforms, because the guards are shell, where the platforms
+      # differ: macOS runners ship bash 3.2. A guard that only ever ran on ubuntu would be a guard that
       # had never met half the machines this repository is developed on.
       - name: chore test:scripts
         run: chore test:scripts
@@ -130,10 +128,8 @@ jobs:
       - name: install chore
         run: scripts/ci-install-chore.sh
 
-      # Resolved on the runner and bind-mounted into the container by
-      # scripts/docker-suite.sh: inside it only this checkout exists, so
-      # ../rust-fs-core is a path that never resolves and FS_CORE_ROOT is how
-      # the inner tier is told where it went.
+      # Bind-mounted into the container by scripts/docker-suite.sh at
+      # /rust-fs-core, which is ../rust-fs-core from the checkout at /src.
       - name: chore siblings
         run: chore siblings
 
@@ -168,8 +164,8 @@ jobs:
       - name: chore tools
         run: chore tools
 
-      # `chore lint` runs rust-fs-core's ci-gate and family-check through
-      # scripts/core.sh, so it needs the pinned sibling like the tiers do.
+      # `chore lint` runs rust-fs-core's ci-gate and family-check in place,
+      # so it needs the pinned sibling like the tiers do.
       - name: chore siblings
         run: chore siblings
 

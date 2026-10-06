@@ -216,7 +216,7 @@ Each of these is an open issue; read it before you trip over it.
 does: `ci-ok` is `if: always()`, `needs:` every job in `ci.yml` and fails unless
 each one concluded `success`, so renaming or splitting a job cannot silently
 change what gates a merge. `chore lint` (`check:ci-gate`) holds both halves:
-it runs rust-fs-core's ci-gate through `scripts/core.sh`, against the
+it runs rust-fs-core's ci-gate in place from the
 `rust-fs-core` sibling `chore siblings` checks out, and fails if a job is
 missing from `ci-ok`'s `needs:` or the guard names anything else. A job added
 to `ci.yml` goes into `ci-ok`'s `needs:` in the same change.

@@ -146,3 +146,15 @@ Bootstrap commit of the module structure:
 - `ftp/cmd/ftp/main.go` — first cgo wrapper draft.
 - `sftp/`, `smb/`, `dropbox/`, `webdav/` — stubs that register with
   the driver registry and return "not implemented" for every method.
+
+## [Unreleased]
+
+### Changed
+
+- **The family's scripts run in place from rust-fs-core, and this repository
+  keeps no copy.** `scripts/core.sh` and `scripts/tier.sh` are gone; CI and
+  chores run `../rust-fs-core/scripts/NAME.sh` at the pinned version
+  (rust-fs-core 0.3.3, #212).
+- **`scripts/resolve-output-budget.sh` is gone with the copies it served.**
+  `chore siblings` links the machine's one rust-fs-core checkout beside a
+  worktree, and the runner container mounts it at `/rust-fs-core`.
