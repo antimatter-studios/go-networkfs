@@ -34,8 +34,12 @@ base="https://github.com/antimatter-studios/chore/releases/download/v${CHORE_VER
 dir="${RUNNER_TEMP:-$(mktemp -d)}/chore"
 mkdir -p "$dir"
 
-curl -fsSL -o "$dir/$tarball" "$base/$tarball"
-curl -fsSL -o "$dir/checksums.txt" "$base/checksums.txt"
+# GitHub's release download answers an occasional HTTP 500, and one such
+# answer used to fail the whole job before anything under test ran. Both
+# downloads retry on any error; the checksum check below still guards what
+# was fetched.
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 -o "$dir/$tarball" "$base/$tarball"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 -o "$dir/checksums.txt" "$base/checksums.txt"
 
 # macOS has shasum and no sha256sum; Linux runners have both. Checking the
 # checksum is not optional, so the tool that does it is chosen rather than the
