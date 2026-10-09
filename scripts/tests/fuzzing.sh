@@ -32,7 +32,7 @@ GUARD="$ROOT/.github-guard"
 # not a target count — it moves UP when targets are added and never down.
 MINIMUM_TARGETS=8
 
-EXPECTED_CHECKS=12
+EXPECTED_CHECKS=13
 checks=0
 fails=0
 
@@ -86,6 +86,27 @@ if grep -q 'pull_request' "$WORKFLOW" 2>/dev/null; then
     fail "the fuzz workflow does not run on pull_request" \
          "forty minutes a push; the corpus replay is the per-PR tier"
 else ok; fi
+
+# --- The explorer runs on a Go without the fuzztime race. -----------------
+#
+# go1.26's fuzzer can report a clean run as a failure when -fuzztime expires:
+# a worker error in the window between the deadline and the cancellation of
+# its child context is not suppressed (go.dev/issue/75804). The nightly failed
+# that way on 2026-10-09 with no input written (run 37917988928, #55). The fix,
+# golang/go@5a957dc766, is in go1.27 and was never backported to 1.26. So while
+# go.mod is below 1.27, fuzz.yml must install the explorer's Go itself, at 1.27
+# or later; the corpus replay in `chore test:unit` stays on go.mod's.
+go_minor() { # 1.27.1 -> 27; anything not 1.x -> 0
+    case "$1" in 1.*) v="${1#1.}"; v="${v%%.*}"; [ -n "$v" ] && echo "$v" || echo 0 ;; *) echo 0 ;; esac
+}
+mod_go="$(sed -n 's/^go \([0-9][0-9.]*\)$/\1/p' "$ROOT/go.mod")"
+explorer_go="$(sed -n "s/^ *go-version: *['\"]\{0,1\}\([0-9][0-9.]*\)['\"]\{0,1\} *$/\1/p" "$WORKFLOW" | head -1)"
+if [ -z "$explorer_go" ] && grep -q 'go-version-file: *go.mod' "$WORKFLOW" 2>/dev/null; then
+    explorer_go="$mod_go"
+fi
+if [ "$(go_minor "${explorer_go:-0}")" -ge 27 ]; then ok
+else fail "the fuzz explorer runs on go1.27 or later" \
+          "go.mod is ${mod_go:-?} and fuzz.yml installs ${explorer_go:-nothing it names}: go.dev/issue/75804 fails a clean run whose fuzztime expires"; fi
 
 # --- And it is never a required check. -------------------------------------
 #
