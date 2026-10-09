@@ -43,9 +43,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # NOT go.mod's Go. go1.26's fuzzer can fail a clean run when a target's
+      # -fuzztime expires (go.dev/issue/75804; run 37917988928, #55), and the
+      # fix, golang/go@5a957dc766, is only in go1.27. The explorer runs on
+      # that; the corpus replay in `chore test:unit` stays on go.mod's.
+      # scripts/tests/fuzzing.sh holds this at 1.27 or later until go.mod is.
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.27.1'
           cache: true
 
       - name: install chore
