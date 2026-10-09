@@ -213,7 +213,7 @@ vars:
   # v0.3.3 is the first release whose scripts all run in place from this
   # checkout, the tier runner included; moving the pin is how they are
   # upgraded.
-  FS_CORE_REF: v0.3.3
+  FS_CORE_REF: v0.3.8
 
 tasks:
   # ---------------------------------------------------------------- host tools
