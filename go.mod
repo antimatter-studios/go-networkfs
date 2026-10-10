@@ -1,6 +1,6 @@
 module github.com/christhomas/go-networkfs
 
-go 1.26.8
+go 1.26.9
 
 require (
 	github.com/antimatter-studios/goftp v1.4.0
