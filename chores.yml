@@ -369,6 +369,7 @@ tasks:
     # still stops the build. The accepted list is currently empty, on purpose.
     cmds:
       - bash ../rust-fs-core/scripts/agents-core-check.sh
+      - bash ../rust-fs-core/scripts/changelog-check.sh
       - 'scripts/tools.sh --check'
       - 'PATH="$PWD/tmp/bin:$PATH" scripts/govulncheck-gate.sh'
 
