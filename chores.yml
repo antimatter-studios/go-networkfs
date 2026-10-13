@@ -213,7 +213,7 @@ vars:
   # v0.3.3 is the first release whose scripts all run in place from this
   # checkout, the tier runner included; moving the pin is how they are
   # upgraded.
-  FS_CORE_REF: v0.3.8
+  FS_CORE_REF: v0.3.11
 
 tasks:
   # ---------------------------------------------------------------- host tools
@@ -369,6 +369,7 @@ tasks:
     # still stops the build. The accepted list is currently empty, on purpose.
     cmds:
       - bash ../rust-fs-core/scripts/agents-core-check.sh
+      - bash ../rust-fs-core/scripts/changelog-check.sh
       - 'scripts/tools.sh --check'
       - 'PATH="$PWD/tmp/bin:$PATH" scripts/govulncheck-gate.sh'
 
