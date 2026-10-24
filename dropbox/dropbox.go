@@ -16,8 +16,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
-	"github.com/christhomas/go-networkfs/pkg/fsutil"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/fsutil"
 	dbx "github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox"
 	"github.com/dropbox/dropbox-sdk-go-unofficial/v6/dropbox/files"
 	"golang.org/x/oauth2"

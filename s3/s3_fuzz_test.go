@@ -17,7 +17,7 @@
 package s3
 
 import (
-	"github.com/christhomas/go-networkfs/pkg/fsutil"
+	"github.com/antimatter-studios/go-networkfs/pkg/fsutil"
 	"strings"
 	"testing"
 )

@@ -163,7 +163,7 @@ covering everything.
 The S3 driver is tested against a real S3 server rather than a fake:
 [stupid-simple-s3][sss3] (sss3), pinned to **v1.0.7**. It replaced MinIO,
 whose `minio/minio` image stopped resolving on Docker Hub
-([#7](https://github.com/christhomas/go-networkfs/issues/7)).
+([#7](https://github.com/antimatter-studios/go-networkfs/issues/7)).
 
 Two ways in, same server and same version:
 

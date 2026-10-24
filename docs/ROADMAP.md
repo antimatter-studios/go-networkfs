@@ -212,7 +212,7 @@ five files. Generate them from a single template and a tiny spec file:
 # driver.gen.yaml
 name: sftp
 type_id: 2
-package: github.com/christhomas/go-networkfs/sftp
+package: github.com/antimatter-studios/go-networkfs/sftp
 ```
 
 Commit the generated files so downstream builds don't need the

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 
 	ftpserver "goftp.io/server/v2"
 	"goftp.io/server/v2/driver/file"

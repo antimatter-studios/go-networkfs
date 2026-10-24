@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // memDriver is a tiny in-memory api.Driver implementation used to

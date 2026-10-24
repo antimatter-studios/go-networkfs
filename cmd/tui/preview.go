@@ -37,7 +37,7 @@ import (
 
 	xdraw "golang.org/x/image/draw"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // maxImageWidthPx caps transmitted images at this pixel width.

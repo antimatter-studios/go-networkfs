@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 	smb2 "github.com/antimatter-studios/go-smb2-hirochachacha/v2"
-	"github.com/christhomas/go-networkfs/pkg/api"
 )
 
 // Driver type ID - must match dispatcher registry

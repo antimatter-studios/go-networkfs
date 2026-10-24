@@ -6,7 +6,7 @@ package fsutil
 import (
 	"errors"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // SkipDir, when returned by WalkFunc on a directory entry, tells Walk

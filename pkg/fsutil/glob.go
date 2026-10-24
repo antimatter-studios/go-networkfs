@@ -4,7 +4,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // Glob returns all paths under root whose basename matches pattern.

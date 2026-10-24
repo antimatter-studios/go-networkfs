@@ -21,7 +21,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 	"golang.org/x/oauth2"
 )
 

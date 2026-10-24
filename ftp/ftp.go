@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 	"github.com/antimatter-studios/goftp"
-	"github.com/christhomas/go-networkfs/pkg/api"
 )
 
 // Driver type ID - must match dispatcher registry

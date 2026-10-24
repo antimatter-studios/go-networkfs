@@ -10,7 +10,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // normalizePrefix: "" stays "", otherwise trimmed of leading/trailing
