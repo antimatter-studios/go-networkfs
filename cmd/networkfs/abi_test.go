@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 func TestStringRoundTrip(t *testing.T) {

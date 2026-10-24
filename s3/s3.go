@@ -18,8 +18,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
-	"github.com/christhomas/go-networkfs/pkg/fsutil"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/fsutil"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )

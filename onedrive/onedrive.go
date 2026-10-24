@@ -23,7 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/christhomas/go-networkfs/pkg/fsutil"
+	"github.com/antimatter-studios/go-networkfs/pkg/fsutil"
 	"io"
 	"net/http"
 	"net/url"
@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 const DriverTypeID = 8

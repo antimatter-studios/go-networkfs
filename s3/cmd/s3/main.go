@@ -26,7 +26,7 @@ import (
 	"encoding/json"
 	"unsafe"
 
-	"github.com/christhomas/go-networkfs/s3"
+	"github.com/antimatter-studios/go-networkfs/s3"
 )
 
 var driver = &s3.S3Driver{}

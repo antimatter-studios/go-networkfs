@@ -1,4 +1,4 @@
-module github.com/christhomas/go-networkfs
+module github.com/antimatter-studios/go-networkfs
 
 go 1.26.9
 

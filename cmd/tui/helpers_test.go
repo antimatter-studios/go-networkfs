@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // fakeDriver serves canned responses so the preview and listing paths can be

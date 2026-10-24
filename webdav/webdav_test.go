@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/net/webdav"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
 // --- unit tests -----------------------------------------------------------

@@ -7,7 +7,7 @@
 //
 // NOTE: cgo marshaling helpers (stringFromC, jsonToC, setOutString, …)
 // are intentionally inlined here rather than imported from
-// github.com/christhomas/go-networkfs/pkg/api/cgo. See dropbox/cmd/dropbox
+// github.com/antimatter-studios/go-networkfs/pkg/api/cgo. See dropbox/cmd/dropbox
 // for the full rationale.
 
 package main
@@ -28,7 +28,7 @@ import (
 	"encoding/json"
 	"unsafe"
 
-	"github.com/christhomas/go-networkfs/gdrive"
+	"github.com/antimatter-studios/go-networkfs/gdrive"
 )
 
 var driver = &gdrive.GDriveDriver{}

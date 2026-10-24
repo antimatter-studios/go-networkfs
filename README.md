@@ -349,8 +349,8 @@ declare a bridging header:
 
 ```go
 import (
-    "github.com/christhomas/go-networkfs/pkg/api"
-    _ "github.com/christhomas/go-networkfs/ftp" // Register driver
+    "github.com/antimatter-studios/go-networkfs/pkg/api"
+    _ "github.com/antimatter-studios/go-networkfs/ftp" // Register driver
 )
 
 driver, _ := api.GetDriver(1) // 1 = FTP
@@ -513,7 +513,7 @@ pointers, free — has to stay inline in each main.
 Vendor as a git submodule (or vendor directly — both work):
 
 ```bash
-git submodule add https://github.com/christhomas/go-networkfs.git vendor/go-networkfs
+git submodule add https://github.com/antimatter-studios/go-networkfs.git vendor/go-networkfs
 ```
 
 The included `scripts/build-gonetworkfs.sh` produces all per-driver

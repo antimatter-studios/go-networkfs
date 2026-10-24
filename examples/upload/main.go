@@ -20,16 +20,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/christhomas/go-networkfs/pkg/api"
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 
-	_ "github.com/christhomas/go-networkfs/dropbox"
-	_ "github.com/christhomas/go-networkfs/ftp"
-	_ "github.com/christhomas/go-networkfs/gdrive"
-	_ "github.com/christhomas/go-networkfs/onedrive"
-	_ "github.com/christhomas/go-networkfs/s3"
-	_ "github.com/christhomas/go-networkfs/sftp"
-	_ "github.com/christhomas/go-networkfs/smb"
-	_ "github.com/christhomas/go-networkfs/webdav"
+	_ "github.com/antimatter-studios/go-networkfs/dropbox"
+	_ "github.com/antimatter-studios/go-networkfs/ftp"
+	_ "github.com/antimatter-studios/go-networkfs/gdrive"
+	_ "github.com/antimatter-studios/go-networkfs/onedrive"
+	_ "github.com/antimatter-studios/go-networkfs/s3"
+	_ "github.com/antimatter-studios/go-networkfs/sftp"
+	_ "github.com/antimatter-studios/go-networkfs/smb"
+	_ "github.com/antimatter-studios/go-networkfs/webdav"
 )
 
 func main() {

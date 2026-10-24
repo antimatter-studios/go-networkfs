@@ -7,7 +7,7 @@
 //
 // NOTE: cgo marshaling helpers (StringFromC, JSONToC, SetOutString, …)
 // are intentionally inlined here rather than imported from
-// github.com/christhomas/go-networkfs/pkg/api/cgo. When cgo helpers
+// github.com/antimatter-studios/go-networkfs/pkg/api/cgo. When cgo helpers
 // are defined in a separate package, their `C.char` becomes a named
 // type scoped to that package — not assignable to `*C.char` in any
 // other package's main. The only portable way to share cgo glue is
@@ -31,7 +31,7 @@ import (
 	"encoding/json"
 	"unsafe"
 
-	"github.com/christhomas/go-networkfs/smb"
+	"github.com/antimatter-studios/go-networkfs/smb"
 )
 
 var driver = &smb.SMBDriver{}
