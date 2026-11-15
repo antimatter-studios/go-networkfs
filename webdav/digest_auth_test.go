@@ -50,7 +50,7 @@ func TestDigestAnswersAuthFromAQopList(t *testing.T) {
 
 func TestDigestRefusesWhatItCannotAnswer(t *testing.T) {
 	for _, challenge := range []string{
-		`Digest realm="r", nonce="n", algorithm=SHA-256, qop="auth"`,
+		`Digest realm="r", nonce="n", algorithm=SHA-512, qop="auth"`,
 		`Digest realm="r", nonce="n", qop="auth-int"`,
 		`Digest realm="r", qop="auth"`,
 		`Basic realm="r"`,
@@ -97,5 +97,25 @@ func TestDigestVerifyRenegotiatesOnlyAStaleNonce(t *testing.T) {
 	}
 	if redo, err := auth.Verify(nil, &http.Response{StatusCode: http.StatusOK}, "/"); redo || err != nil {
 		t.Errorf("200: redo %v, err %v", redo, err)
+	}
+}
+
+// One WWW-Authenticate value may hold several Digest challenges, most
+// preferred first (RFC 7616 3.7, RFC 9110 11.6.1): the first the driver
+// computes is answered, not the first of all.
+func TestDigestAnswersTheFirstChallengeItComputes(t *testing.T) {
+	header := `Digest realm="r", nonce="a", algorithm=SHA3-256, qop="auth", ` +
+		`Basic realm="b", Digest realm="r", nonce="b", algorithm=SHA-256, qop="auth", ` +
+		`Digest realm="r", nonce="c", algorithm=MD5, qop="auth"`
+	auth, err := newDigestAuth("u", "p", header)
+	if err != nil {
+		t.Fatalf("%s: %v", header, err)
+	}
+	rq, _ := http.NewRequest("GET", "http://host/f", nil)
+	if err := auth.Authorize(nil, rq, "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rq.Header.Get("Authorization"); !strings.Contains(got, "algorithm=SHA-256") || !strings.Contains(got, `nonce="b"`) {
+		t.Errorf("Authorization %q: want the SHA-256 challenge answered, with its own nonce", got)
 	}
 }
