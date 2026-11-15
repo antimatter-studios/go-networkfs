@@ -133,11 +133,15 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	// CountingTransport fall back to http.DefaultTransport, matching the
 	// gowebdav default (it never sets one explicitly).
 	//
+	// digestRequestURI sits below the counters, at the wire, so every request
+	// that goes out carries a Digest response signed for the URI it requests
+	// (#99), whatever path the mount's url holds.
+	//
 	// collectionRedirects sits above the counters, so a request it re-sends
 	// to a collection's slash-terminated URL is counted as the second
 	// request it is.
 	d.stats = &api.MountStats{}
-	d.transport = &collectionRedirects{base: api.NewCountingTransport(nil, d.stats)}
+	d.transport = &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass}, d.stats)}
 	d.client.SetTransport(d.transport)
 
 	// Optional: validate with Connect (may no-op depending on server).

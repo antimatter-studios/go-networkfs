@@ -111,6 +111,10 @@ SFTP_PASS="${SFTP_PASS:-testpass}"
 # driver's conditional mutations rely on (#70). test/webdavd, over
 # golang.org/x/net/webdav, served here before it and could not.
 DAV_PORT="${DAV_PORT:-8080}"
+# The same server's second listener, behind HTTP Digest auth rather than Basic
+# (#95). A port of its own, not a path under the first: the driver checks a
+# mount by asking the server's root, and one root cannot offer both schemes.
+DAV_DIGEST_PORT="${DAV_DIGEST_PORT:-8083}"
 DAV_IMAGE="${DAV_IMAGE:-go-networkfs-webdav:test}"
 DAV_CONTAINER="${DAV_CONTAINER:-go-networkfs-webdav}"
 DAV_USER="${DAV_USER:-testuser}"
@@ -143,13 +147,14 @@ MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 # SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
 # guard (scripts/tests/suite-env.sh) can hold the two to each other.
 # shellcheck disable=SC2034  # read by servers.sh, which sources this file
-SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_SABRE_URL WEBDAV_USER WEBDAV_PASS"
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_DIGEST_URL WEBDAV_SABRE_URL WEBDAV_USER WEBDAV_PASS"
 export_suite_env() {
     export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
     export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
     export S3_ACCESS_KEY="$S3_KEY" S3_SECRET_KEY="$S3_SECRET"
     export FTP_HOST="$FTP_ADDR" FTP_PORT FTP_USER FTP_PASS
     export WEBDAV_URL="http://$DAV_ADDR:$DAV_PORT" WEBDAV_USER="$DAV_USER" WEBDAV_PASS="$DAV_PASS"
+    export WEBDAV_DIGEST_URL="http://$DAV_ADDR:$DAV_DIGEST_PORT"
     export WEBDAV_SABRE_URL="http://$DAV_SABRE_ADDR:$DAV_SABRE_PORT"
 }
 

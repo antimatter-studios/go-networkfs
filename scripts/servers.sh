@@ -286,11 +286,12 @@ up_webdav() {
     build_image "$DAV_IMAGE" -f .github/docker/webdav/Dockerfile .
     rm_container "$DAV_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias webdav \
-        --name "$DAV_CONTAINER" -p "$DAV_PORT:80" \
+        --name "$DAV_CONTAINER" -p "$DAV_PORT:80" -p "$DAV_DIGEST_PORT:81" \
         -e WEBDAVD_USER="$DAV_USER" -e WEBDAVD_PASS="$DAV_PASS" \
         "$DAV_IMAGE" >/dev/null
     wait_for_port "$DAV_CONTAINER" "$DAV_PORT"
-    echo "  webdav   127.0.0.1:$DAV_PORT (user $DAV_USER)"
+    wait_for_port "$DAV_CONTAINER" "$DAV_DIGEST_PORT"
+    echo "  webdav   127.0.0.1:$DAV_PORT (user $DAV_USER), digest auth on 127.0.0.1:$DAV_DIGEST_PORT"
 }
 
 # The second WebDAV server, sabre/dav, built from .github/docker/sabredav with

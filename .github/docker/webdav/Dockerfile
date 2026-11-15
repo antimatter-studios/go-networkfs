@@ -24,13 +24,13 @@ COPY .github/docker/webdav/dav.conf /usr/local/apache2/conf/extra/dav.conf
 COPY .github/docker/webdav/entrypoint.sh /usr/local/bin/webdav-entrypoint
 RUN echo 'Include conf/extra/dav.conf' >> /usr/local/apache2/conf/httpd.conf \
  && rm -f /usr/local/apache2/htdocs/index.html \
- && mkdir -p /usr/local/apache2/var \
- && chown -R www-data:www-data /usr/local/apache2/var /usr/local/apache2/htdocs \
+ && mkdir -p /usr/local/apache2/var /usr/local/apache2/digest \
+ && chown -R www-data:www-data /usr/local/apache2/var /usr/local/apache2/htdocs /usr/local/apache2/digest \
  && chmod 0755 /usr/local/bin/webdav-entrypoint
 
 # The account comes from the environment at start, as it did for webdavd, so
 # scripts/servers.sh passes the same two variables to either.
 ENV WEBDAVD_USER=testuser
 ENV WEBDAVD_PASS=testpass
-EXPOSE 80
+EXPOSE 80 81
 ENTRYPOINT ["/usr/local/bin/webdav-entrypoint"]
