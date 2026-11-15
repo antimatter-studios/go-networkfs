@@ -116,12 +116,34 @@ func slashRedirect(requested *url.URL, response *http.Response) (*url.URL, bool)
 	if err != nil {
 		return nil, false
 	}
-	if target.Scheme != requested.Scheme ||
-		!strings.EqualFold(target.Host, requested.Host) ||
+	if !sameOrigin(requested, target) ||
 		target.User != nil ||
 		target.RawQuery != requested.RawQuery ||
 		target.Path != requested.Path+"/" {
 		return nil, false
 	}
 	return target, true
+}
+
+// sameOrigin reports whether a and b name the same scheme, host and port. A
+// port left out is the scheme's default: a server reached at "host:80" may
+// redirect to "http://host/...", which Apache does whenever the port is the
+// default.
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) &&
+		strings.EqualFold(a.Hostname(), b.Hostname()) &&
+		portOf(a) == portOf(b)
+}
+
+func portOf(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	}
+	return ""
 }

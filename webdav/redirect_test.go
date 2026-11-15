@@ -60,6 +60,29 @@ func TestSlashRedirect(t *testing.T) {
 		})
 	}
 
+	// Apache leaves the default port out of the Location it builds.
+	for _, pair := range [][2]string{
+		{"http://webdav:80/dir", "http://webdav/dir/"},
+		{"http://webdav/dir", "http://webdav:80/dir/"},
+		{"https://webdav:443/dir", "https://webdav/dir/"},
+	} {
+		from, _ := url.Parse(pair[0])
+		response := &http.Response{StatusCode: http.StatusMovedPermanently, Header: http.Header{"Location": {pair[1]}}}
+		if target, ok := slashRedirect(from, response); !ok || target.String() != pair[1] {
+			t.Errorf("%s redirected to %s: followed %v to %v", pair[0], pair[1], ok, target)
+		}
+	}
+	for _, pair := range [][2]string{
+		{"http://webdav:8080/dir", "http://webdav/dir/"},
+		{"https://webdav/dir", "https://webdav:80/dir/"},
+	} {
+		from, _ := url.Parse(pair[0])
+		response := &http.Response{StatusCode: http.StatusMovedPermanently, Header: http.Header{"Location": {pair[1]}}}
+		if target, ok := slashRedirect(from, response); ok {
+			t.Errorf("%s redirected to %s was followed to %v on another port", pair[0], pair[1], target)
+		}
+	}
+
 	slashed, _ := url.Parse("http://dav.example:8080/base/dir/")
 	response := &http.Response{StatusCode: http.StatusMovedPermanently, Header: http.Header{"Location": {"/base/dir//"}}}
 	if _, ok := slashRedirect(slashed, response); ok {
