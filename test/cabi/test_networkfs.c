@@ -20,6 +20,7 @@
 
 #include "libnetworkfs.h"
 #include "http_fixture.h"
+#include "revision.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -33,14 +34,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 44
-// checks is the honest total; with it, all 62 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 47
+// checks is the honest total; with it, all 76 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 44
-#define EXPECTED_CHECKS_MOUNTED 62
+#define EXPECTED_CHECKS_OFFLINE 47
+#define EXPECTED_CHECKS_MOUNTED 76
 
 static void check(int cond, const char *what) {
     checks++;
@@ -157,6 +158,14 @@ static void test_operations_on_unknown_mount(void) {
     check(networkfs_mkdir(4242, "/p") != 0, "mkdir on an unknown mount fails");
     check(networkfs_remove(4242, "/p") != 0, "remove on an unknown mount fails");
     check(networkfs_rename(4242, "/a", "/b") != 0, "rename on an unknown mount fails");
+
+    ByteSlice data;
+    data.data = "x";
+    data.len = 1;
+    check(networkfs_writefile_if(4242, "/p", data, "\"r\"") == 1, "writefile_if on an unknown mount returns 1");
+    check(networkfs_remove_if(4242, "/p", "\"r\"") == 1, "remove_if on an unknown mount returns 1");
+    check(networkfs_rename_if(4242, "/a", "/b", "\"r\"", NULL) == 1, "rename_if on an unknown mount returns 1");
+
     check(networkfs_unmount(4242) != 0, "unmount of an unknown mount fails");
 }
 
@@ -399,6 +408,93 @@ static void test_mkdir_and_rename(void) {
     networkfs_unmount(id);
 }
 
+
+// A driver whose server cannot enforce a revision has every conditional
+// export refused with 3, and none of them falls back to the unconditional
+// operation (#70). SMB is such a driver.
+static void test_conditional_unsupported(void) {
+    const int id = 4;
+    if (mount_smb(id) != 0) {
+        check(0, "mount SMB for the conditional exports");
+        return;
+    }
+    const char *path = "/cabi-conditional.txt";
+    const char *moved = "/cabi-conditional-moved.txt";
+    char *info = NULL;
+    ByteSlice data;
+    data.data = "conditional";
+    data.len = 11;
+
+    check(networkfs_writefile_if(id, (char *)path, data, NULL) == 3, "writefile_if on SMB returns 3");
+    check(networkfs_stat(id, (char *)path, &info) != 0, "the refused writefile_if wrote nothing");
+    if (info) { networkfs_free(info); info = NULL; }
+
+    networkfs_writefile(id, (char *)path, data);
+    check(networkfs_remove_if(id, (char *)path, "\"r\"") == 3, "remove_if on SMB returns 3");
+    check(networkfs_rename_if(id, (char *)path, (char *)moved, "\"r\"", NULL) == 3, "rename_if on SMB returns 3");
+    check(networkfs_stat(id, (char *)path, &info) == 0, "the refused remove_if and rename_if left the file");
+    if (info) { networkfs_free(info); info = NULL; }
+
+    networkfs_remove(id, (char *)path);
+    networkfs_unmount(id);
+}
+
+// A WebDAV mount's revision travels out through networkfs_stat and back in
+// through networkfs_writefile_if, and a stale one returns 2 (#70). Two mount
+// IDs are two clients of the same server.
+static void test_conditional_webdav(void) {
+    const char *url = getenv("WEBDAV_URL");
+    const char *user = getenv("WEBDAV_USER");
+    const char *pass = getenv("WEBDAV_PASS");
+    if (!url || !user || !pass) {
+        check(0, "WEBDAV_URL, WEBDAV_USER and WEBDAV_PASS are set (scripts/cabi.sh cabi_unified)");
+        return;
+    }
+    char config[1024];
+    snprintf(config, sizeof config, "{\"url\":\"%s\",\"user\":\"%s\",\"pass\":\"%s\"}", url, user, pass);
+    const int a = 5, b = 6;
+    if (mount_fixture(a, config) != 0 || mount_fixture(b, config) != 0) {
+        check(0, "mount two WebDAV clients");
+        return;
+    }
+    const char *path = "/cabi-networkfs-conditional.txt";
+    ByteSlice data;
+    data.data = "first";
+    data.len = 5;
+    check(networkfs_writefile(a, (char *)path, data) == 0, "client A writes through networkfs_writefile");
+
+    char rev[256];
+    char *info = NULL;
+    rev[0] = '\0';
+    if (networkfs_stat(a, (char *)path, &info) == 0 && info) {
+        revision_from_json(info, rev, sizeof rev);
+    }
+    if (info) { networkfs_free(info); info = NULL; }
+    check(rev[0] != '\0', "networkfs_stat reports a revision");
+
+    data.data = "other";
+    check(networkfs_writefile(b, (char *)path, data) == 0, "client B overwrites it");
+    data.data = "stale";
+    check(networkfs_writefile_if(a, (char *)path, data, rev) == 2, "a stale networkfs_writefile_if returns 2");
+
+    ByteSlice out;
+    out.data = NULL;
+    out.len = 0;
+    check(networkfs_openfile(a, (char *)path, &out) == 0 && out.len == 5 && memcmp(out.data, "other", 5) == 0,
+          "the refused write left client B's contents");
+    if (out.data) networkfs_free(out.data);
+
+    rev[0] = '\0';
+    if (networkfs_stat(a, (char *)path, &info) == 0 && info) {
+        revision_from_json(info, rev, sizeof rev);
+    }
+    if (info) { networkfs_free(info); info = NULL; }
+    check(networkfs_remove_if(a, (char *)path, rev) == 0, "networkfs_remove_if at the current revision returns 0");
+
+    networkfs_unmount(a);
+    networkfs_unmount(b);
+}
+
 // ---------------------------------------------------------------------------
 
 // The ABI's contract is that the caller frees what it is given. Doing that a
@@ -440,6 +536,8 @@ int main(void) {
         test_write_then_read_back();
         test_empty_file_round_trip();
         test_mkdir_and_rename();
+        test_conditional_unsupported();
+        test_conditional_webdav();
     } else {
         // A SKIP IS RIGHT ON A LAPTOP AND WRONG IN CI — see the per-driver
         // harnesses. In the job that exists because Samba is up, no SMB_HOST

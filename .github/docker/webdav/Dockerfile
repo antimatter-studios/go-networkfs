@@ -1,31 +1,36 @@
-# The WebDAV server for the webdav driver's tests, built from test/webdavd.
+# The WebDAV server for the webdav driver's tests: Apache httpd's mod_dav.
 #
-# IT REPLACES bytemark/webdav:latest, which is published for linux/amd64 only.
-# On an arm64 host that image exited with "exec format error" before serving a
-# single request, so `chore test` could not complete at all — and the consumer
-# of these archives is a macOS application, so an Apple Silicon workstation is
-# exactly where a developer runs this. Issues #16 and #20.
+# WHY APACHE. The driver's conditional mutations hand a revision (an entity
+# tag) back in an RFC 4918 If header and rely on the server to refuse a stale
+# one with 412 while it applies the change (issue #70). The server this
+# replaced, test/webdavd over golang.org/x/net/webdav, cannot evaluate an
+# entity tag in an If header at all -- it answers 412 to every such request --
+# so it could prove a conflict but never a valid conditional save. mod_dav is
+# the reference implementation of RFC 4918 and shares no code or reading of
+# the protocol with this repository, which is what "validate against something
+# that is not us" asks of a fixture.
 #
-# Built here rather than pulled, the way .github/docker/samba and
-# .github/docker/mockapi already are: multi-arch by construction, pinned by
-# this repository's own commit rather than by somebody else's floating tag,
-# and unable to drift from what the driver expects.
-FROM golang:1.26-bookworm AS build
+# STILL BUILT HERE, NOT PULLED AS-IS, for the reasons the earlier image was
+# (issues #16 and #20): the base is pinned to an exact release, httpd's
+# official image is published for amd64 and arm64 alike, and the DAV and
+# authentication configuration lives in this repository next to the tests that
+# depend on it.
+#
+# THIS IS A TEST SERVER: one account, plain HTTP, started by
+# scripts/servers.sh in a throwaway container and never shipped.
+FROM httpd:2.4.71
 
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o /out/webdavd ./test/webdavd
+COPY .github/docker/webdav/dav.conf /usr/local/apache2/conf/extra/dav.conf
+COPY .github/docker/webdav/entrypoint.sh /usr/local/bin/webdav-entrypoint
+RUN echo 'Include conf/extra/dav.conf' >> /usr/local/apache2/conf/httpd.conf \
+ && rm -f /usr/local/apache2/htdocs/index.html \
+ && mkdir -p /usr/local/apache2/var \
+ && chown -R www-data:www-data /usr/local/apache2/var /usr/local/apache2/htdocs \
+ && chmod 0755 /usr/local/bin/webdav-entrypoint
 
-# Distroless, as mockapi is. WORKDIR /data is what creates the storage
-# directory: nothing in this image can mkdir at runtime, because the binary
-# runs as nonroot and owns nothing else — the same trap sss3 fell into when it
-# was pointed at an unwritable path and exited 1 looking ready (#13).
-FROM gcr.io/distroless/static-debian12
-COPY --from=build /out/webdavd /webdavd
-WORKDIR /data
-ENV WEBDAVD_ADDR=:80
-ENV WEBDAVD_ROOT=/data
+# The account comes from the environment at start, as it did for webdavd, so
+# scripts/servers.sh passes the same two variables to either.
+ENV WEBDAVD_USER=testuser
+ENV WEBDAVD_PASS=testpass
 EXPOSE 80
-ENTRYPOINT ["/webdavd"]
+ENTRYPOINT ["/usr/local/bin/webdav-entrypoint"]

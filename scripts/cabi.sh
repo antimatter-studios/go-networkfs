@@ -107,6 +107,7 @@ cabi_unified() {
     GOCOVERDIR="$CABI_COVER" \
         SMB_HOST="$SMB_ADDR" SMB_PORT="$SMB_PORT" SMB_SHARE="$SMB_SHARE" \
         SMB_USER="$SMB_USER" SMB_PASS="$SMB_PASS" \
+        WEBDAV_URL="http://$DAV_ADDR:$DAV_PORT" WEBDAV_USER="$DAV_USER" WEBDAV_PASS="$DAV_PASS" \
         "$CABI_DIR/unified/test_networkfs"
 }
 

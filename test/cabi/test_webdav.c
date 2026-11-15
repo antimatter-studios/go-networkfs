@@ -16,6 +16,7 @@
 
 #include "libwebdav.h"
 #include "http_fixture.h"
+#include "revision.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -29,14 +30,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 45
-// checks is the honest total; with it, all 64 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 50
+// checks is the honest total; with it, all 89 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 45
-#define EXPECTED_CHECKS_MOUNTED 64
+#define EXPECTED_CHECKS_OFFLINE 50
+#define EXPECTED_CHECKS_MOUNTED 89
 
 static void check(int cond, const char *what) {
     checks++;
@@ -104,6 +105,13 @@ static void test_operations_unmounted(void) {
     check(webdav_mkdir(99, "/p") != 0, "mkdir while unmounted fails");
     check(webdav_remove(99, "/p") != 0, "remove while unmounted fails");
     check(webdav_rename(99, "/a", "/b") != 0, "rename while unmounted fails");
+
+    ByteSlice data;
+    data.data = "x";
+    data.len = 1;
+    check(webdav_writefile_if(99, "/p", data, "\"r\"") == 1, "writefile_if while unmounted returns 1");
+    check(webdav_remove_if(99, "/p", "\"r\"") == 1, "remove_if while unmounted returns 1");
+    check(webdav_rename_if(99, "/a", "/b", "\"r\"", NULL) == 1, "rename_if while unmounted returns 1");
 
     // Every mount ID names its own driver, so an ID that was never mounted
     // names nothing, and unmounting it is an error (#66).
@@ -209,6 +217,13 @@ static void test_write_length_bounds(void) {
               fixture_count(&fx, &fx.puts) == 0 && fixture_count(&fx, &fx.moves) == 0,
           "a NULL buffer sends nothing and leaves the target unchanged");
 
+    data.data = &one_byte;
+    data.len = (size_t)1 << 32;
+    check(webdav_writefile_if(id, "/target", data, NULL) == 1, "a conditional write of a 4 GiB length fails");
+    check(fixture_get(&fx, "/target", body, sizeof body) == 8 && memcmp(body, "original", 8) == 0 &&
+              fixture_count(&fx, &fx.puts) == 0 && fixture_count(&fx, &fx.moves) == 0,
+          "an oversized conditional write sends nothing and leaves the target unchanged");
+
     data.data = "replaced";
     data.len = 8;
     check(webdav_writefile(id, "/target", data) == 0, "an ordinary write succeeds");
@@ -269,6 +284,8 @@ static void test_mounts_are_isolated(void) {
 
     check(webdav_unmount(12) == 0, "unmount ID 12");
 }
+
+static void test_conditional_two_clients(const char *cfg);
 
 // Mounted round trip.
 //
@@ -355,6 +372,105 @@ static void test_mounted_round_trip(void) {
     check(webdav_remove(id, "/cabi-webdav-dir") == 0, "remove of the directory succeeds");
 
     check(webdav_unmount(id) == 0, "unmount succeeds");
+
+    test_conditional_two_clients(cfg);
+}
+
+
+// Reads path through mount id into buf; returns its length, or -1.
+static long read_back(int id, const char *path, char *buf, size_t cap) {
+    ByteSlice out;
+    out.data = NULL;
+    out.len = 0;
+    if (webdav_openfile(id, (char *)path, &out) != 0) return -1;
+    long n = -1;
+    if (out.len < cap) {
+        memcpy(buf, out.data, out.len);
+        n = (long)out.len;
+    }
+    if (out.data) webdav_free(out.data);
+    return n;
+}
+
+// The revision stat reports for path through mount id, or "" on failure.
+static void observe(int id, const char *path, char *rev, size_t cap) {
+    char *info = NULL;
+    rev[0] = '\0';
+    if (webdav_stat(id, (char *)path, &info) == 0 && info) {
+        if (revision_from_json(info, rev, cap) < 0) rev[0] = '\0';
+    }
+    if (info) webdav_free(info);
+}
+
+static int write_bytes(int id, const char *path, const char *text) {
+    ByteSlice data;
+    data.data = (char *)text;
+    data.len = strlen(text);
+    return webdav_writefile(id, (char *)path, data);
+}
+
+static int write_if(int id, const char *path, const char *text, const char *rev) {
+    ByteSlice data;
+    data.data = (char *)text;
+    data.len = strlen(text);
+    return webdav_writefile_if(id, (char *)path, data, (char *)rev);
+}
+
+// Conditional mutations through the C ABI, two clients on one server (#70).
+//
+// Client A (ID 21) observes a revision; client B (ID 22) changes the file;
+// A's conditional mutation at the old revision returns 2 and leaves B's
+// change in place. At the current revision it returns 0.
+static void test_conditional_two_clients(const char *cfg) {
+    const int a = 21, b = 22;
+    if (webdav_mount(a, (char *)cfg) != 0 || webdav_mount(b, (char *)cfg) != 0) {
+        check(0, "mount two clients against the test server");
+        return;
+    }
+    check(1, "mount two clients against the test server");
+
+    const char *doc = "/cabi-webdav-conditional.txt";
+    const char *moved = "/cabi-webdav-conditional-moved.txt";
+    const char *fresh = "/cabi-webdav-conditional-new.txt";
+    char rev[256], stale[256], body[64];
+
+    check(write_bytes(a, doc, "version A") == 0, "client A writes the document");
+    observe(a, doc, stale, sizeof stale);
+    check(stale[0] != '\0', "stat reports a revision");
+
+    check(write_bytes(b, doc, "version B") == 0, "client B overwrites it, same size");
+    check(write_if(a, doc, "stale save", stale) == 2, "a write at a stale revision returns 2");
+    check(read_back(a, doc, body, sizeof body) == 9 && memcmp(body, "version B", 9) == 0,
+          "the refused write left client B's contents");
+
+    observe(a, doc, rev, sizeof rev);
+    check(write_if(a, doc, "fresh save", rev) == 0, "a write at the current revision returns 0");
+    check(read_back(b, doc, body, sizeof body) == 10 && memcmp(body, "fresh save", 10) == 0,
+          "client B reads the conditional write");
+
+    check(write_if(a, fresh, "created", NULL) == 0, "a write with a NULL revision creates a new file");
+    check(write_if(b, fresh, "clobbered", "") == 2, "a write with an empty revision over a file returns 2");
+    check(read_back(a, fresh, body, sizeof body) == 7 && memcmp(body, "created", 7) == 0,
+          "the refused create left the file alone");
+
+    check(webdav_rename_if(a, (char *)doc, (char *)moved, stale, NULL) == 2,
+          "a rename at a stale revision returns 2");
+    check(webdav_rename_if(a, (char *)doc, (char *)fresh, rev, NULL) == 2,
+          "a rename onto an existing file with no destination revision returns 2");
+    observe(a, doc, rev, sizeof rev);
+    check(webdav_rename_if(a, (char *)doc, (char *)moved, rev, NULL) == 0,
+          "a rename at the current revision returns 0");
+    check(read_back(b, moved, body, sizeof body) == 10 && read_back(b, doc, body, sizeof body) == -1,
+          "the rename moved the document");
+
+    check(webdav_remove_if(a, (char *)moved, stale) == 2, "a remove at a stale revision returns 2");
+    check(webdav_remove_if(a, (char *)moved, NULL) == 1, "a remove with no revision returns 1");
+    observe(a, moved, rev, sizeof rev);
+    check(webdav_remove_if(a, (char *)moved, rev) == 0, "a remove at the current revision returns 0");
+    check(read_back(b, moved, body, sizeof body) == -1, "the remove deleted the document");
+
+    webdav_remove(a, (char *)fresh);
+    check(webdav_unmount(a) == 0 && webdav_unmount(b) == 0, "unmount both clients");
 }
 
 // The contract is that the caller frees what it is given. Repeating it is what

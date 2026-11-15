@@ -104,9 +104,11 @@ SFTP_USER="${SFTP_USER:-testuser}"
 SFTP_PASS="${SFTP_PASS:-testpass}"
 
 # BUILT FROM .github/docker/webdav, NOT PULLED, for the same reason as sftp:
-# bytemark/webdav:latest is linux/amd64 only. The server is test/webdavd, ~90
-# lines over golang.org/x/net/webdav — already a dependency of this module —
-# so it cannot drift from what the driver expects either.
+# bytemark/webdav:latest is linux/amd64 only. The server is Apache httpd's
+# mod_dav on a pinned, multi-arch httpd base: the reference implementation of
+# RFC 4918, and one that enforces entity tags in an If header, which the
+# driver's conditional mutations rely on (#70). test/webdavd, over
+# golang.org/x/net/webdav, served here before it and could not.
 DAV_PORT="${DAV_PORT:-8080}"
 DAV_IMAGE="${DAV_IMAGE:-go-networkfs-webdav:test}"
 DAV_CONTAINER="${DAV_CONTAINER:-go-networkfs-webdav}"
@@ -130,18 +132,19 @@ MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 # SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
 # guard (scripts/tests/suite-env.sh) can hold the two to each other.
 # shellcheck disable=SC2034  # read by servers.sh, which sources this file
-SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS"
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_USER WEBDAV_PASS"
 export_suite_env() {
     export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
     export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
     export S3_ACCESS_KEY="$S3_KEY" S3_SECRET_KEY="$S3_SECRET"
     export FTP_HOST="$FTP_ADDR" FTP_PORT FTP_USER FTP_PASS
+    export WEBDAV_URL="http://$DAV_ADDR:$DAV_PORT" WEBDAV_USER="$DAV_USER" WEBDAV_PASS="$DAV_PASS"
 }
 
 # Every driver whose integration tests are behind a build tag and need a
 # server. Without these tags most of each driver is never executed and the
 # default coverage number reports it as untested.
-INTEGRATION_TAGS="${INTEGRATION_TAGS:-smb_integration,s3_integration,ftp_integration}"
+INTEGRATION_TAGS="${INTEGRATION_TAGS:-smb_integration,s3_integration,ftp_integration,webdav_integration}"
 
 # The drivers that build as a c-archive. THIS LIST AND chores.yml's DRIVERS
 # MUST AGREE — scripts/cabi.sh builds one harness per name here, and the
