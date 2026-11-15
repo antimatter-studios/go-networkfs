@@ -29,6 +29,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"io"
 	"unsafe"
 
 	"github.com/antimatter-studios/go-networkfs/pkg/api"
@@ -141,26 +142,30 @@ func webdav_listdir(mountID C.int, path *C.char, outJSON **C.char) C.int {
 	return 0
 }
 
-// Returns file data in out buffer (caller must free with webdav_free)
+// Returns file data in out buffer (caller must free out.data with webdav_free).
+// On failure, and for an empty file, out.data is NULL and out.len is 0: there
+// is nothing to free. The whole file is read before 0 is returned; a download
+// that ends early returns 1, never a successful prefix.
 //
 //export webdav_openfile
 func webdav_openfile(mountID C.int, path *C.char, out *C.ByteSlice) C.int {
+	if out == nil {
+		return 1
+	}
+	out.data = nil
+	out.len = 0
 	reader, err := driver.OpenFile(int(mountID), stringFromC(path))
 	if err != nil {
 		return 1
 	}
-	defer reader.Close()
-
-	data := make([]byte, 0, 64*1024)
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			data = append(data, buf[:n]...)
-		}
-		if err != nil {
-			break
-		}
+	// Only io.EOF ends a read cleanly; io.ReadAll does not report it. Any
+	// other error, io.ErrUnexpectedEOF from a body cut short of its
+	// Content-Length included, fails the call rather than handing back a
+	// prefix of the file as if it were all of it.
+	data, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil {
+		return 1
 	}
 
 	setOutBytes(&out.data, &out.len, data)

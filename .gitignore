@@ -3,6 +3,8 @@ coverage.out
 coverage.html
 *.a
 *.h
+# Generated cgo headers are ignored; the C harnesses' own headers are source.
+!test/cabi/*.h
 # Root-only (the stray `go build ./cmd/tui` artefact). Anchored with a
 # leading slash so the cmd/tui source directory isn't excluded.
 /tui

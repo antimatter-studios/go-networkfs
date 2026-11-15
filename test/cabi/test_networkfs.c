@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "libnetworkfs.h"
+#include "http_fixture.h"
 
 static int failures = 0;
 static int checks = 0;
@@ -32,14 +33,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 26
-// checks is the honest total; with it, all 44 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 35
+// checks is the honest total; with it, all 53 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 26
-#define EXPECTED_CHECKS_MOUNTED 44
+#define EXPECTED_CHECKS_OFFLINE 35
+#define EXPECTED_CHECKS_MOUNTED 53
 
 static void check(int cond, const char *what) {
     checks++;
@@ -157,6 +158,70 @@ static void test_operations_on_unknown_mount(void) {
     check(networkfs_remove(4242, "/p") != 0, "remove on an unknown mount fails");
     check(networkfs_rename(4242, "/a", "/b") != 0, "rename on an unknown mount fails");
     check(networkfs_unmount(4242) != 0, "unmount of an unknown mount fails");
+}
+
+// Mounts the in-process HTTP fixture as a WebDAV mount (driver type 5).
+static int mount_fixture(int mount_id, const char *config) {
+    char *err = NULL;
+    int rc = networkfs_mount(mount_id, 5 /* WebDAV */, (char *)config, &err);
+    if (err) networkfs_free(err);
+    return rc;
+}
+
+// A download is all of the file or a failure, never a successful prefix (#64).
+//
+// The fixture promises ten bytes and sends three before closing the
+// connection. The export must report the failure, and a failed openfile hands
+// back no buffer: out.data is NULL and out.len is zero whatever they held
+// before, so the caller has nothing to free. A whole file and an empty file
+// still read back.
+static void test_download_fidelity(void) {
+    static char sentinel;
+    ByteSlice out;
+
+    out.data = &sentinel;
+    out.len = 99;
+    check(networkfs_openfile(9998, "/nope", &out) != 0, "openfile on an unknown mount fails");
+    check(out.data == NULL && out.len == 0, "a failed openfile clears the caller's buffer and length");
+
+    http_fixture fx;
+    if (fixture_start(&fx) != 0) {
+        check(0, "the HTTP fixture starts");
+        return;
+    }
+    fixture_put(&fx, "/truncated", "0123456789", 10, 1, 3);
+    fixture_put(&fx, "/whole", "hello", 5, 0, 0);
+    fixture_put(&fx, "/empty", "", 0, 0, 0);
+
+    const int id = 7;
+    char cfg[256];
+    fixture_config(&fx, cfg, sizeof cfg);
+    if (mount_fixture(id, cfg) != 0) {
+        check(0, "mount the HTTP fixture");
+        return;
+    }
+    check(1, "mount the HTTP fixture");
+
+    out.data = &sentinel;
+    out.len = 99;
+    check(networkfs_openfile(id, "/truncated", &out) != 0, "a download cut short of its Content-Length fails");
+    check(out.data == NULL && out.len == 0, "a truncated download hands back no buffer");
+    if (out.data && out.data != &sentinel) networkfs_free(out.data);
+
+    out.data = NULL;
+    out.len = 0;
+    check(networkfs_openfile(id, "/whole", &out) == 0, "a whole download succeeds");
+    check(out.len == 5 && out.data != NULL && memcmp(out.data, "hello", 5) == 0,
+          "a whole download returns every byte");
+    if (out.data) networkfs_free(out.data);
+
+    out.data = &sentinel;
+    out.len = 99;
+    check(networkfs_openfile(id, "/empty", &out) == 0, "an empty download succeeds");
+    check(out.data == NULL && out.len == 0, "an empty download hands back no buffer and zero length");
+    if (out.data && out.data != &sentinel) networkfs_free(out.data);
+
+    networkfs_unmount(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +376,7 @@ int main(void) {
     test_writefile_on_unknown_mount();
     test_operations_on_unknown_mount();
     test_free_contract_under_repetition();
+    test_download_fidelity();
 
     if (have_server()) {
         test_write_then_read_back();
