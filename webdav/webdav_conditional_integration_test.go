@@ -331,3 +331,35 @@ func TestIntegrationConditionalRename(t *testing.T) {
 		t.Fatalf("rename landed %q", got)
 	}
 }
+
+// A conditional rename into a directory another client removed is refused and
+// does not bring the directory back (#85). Apache 2.4 answers this MOVE 500,
+// not the 409 Conflict RFC 4918 asks for, so it does not reach the 409 path
+// gowebdav would answer by creating the parent and retrying; the unit test
+// TestConditionalMoveIntoAMissingParentCreatesNothing holds that path. This
+// one holds the outcome against a real server whatever status it chooses.
+func TestIntegrationConditionalRenameIntoARemovedDirectory(t *testing.T) {
+	a, b, dir := integrationClients(t)
+	from, target := dir+"/draft.txt", dir+"/target"
+	save(t, a, 1, from, []byte("draft"))
+	if err := a.Mkdir(1, target); err != nil {
+		t.Fatal(err)
+	}
+
+	observed := observe(t, a, 1, from)
+	observe(t, a, 1, target)
+	if err := b.Remove(2, target); err != nil {
+		t.Fatal(err)
+	}
+	err := a.RenameIfMatch(1, from, target+"/final.txt", observed.Revision, "")
+	if err == nil {
+		t.Fatal("rename into the directory B removed succeeded")
+	}
+	absent(t, b, 2, target)
+	if got := contents(t, b, 2, from); string(got) != "draft" {
+		t.Fatalf("refused rename changed the source: %q", got)
+	}
+	if names := listing(t, b, 2, dir); len(names) != 1 {
+		t.Fatalf("refused rename changed the namespace: %v", names)
+	}
+}

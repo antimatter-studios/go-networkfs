@@ -246,3 +246,80 @@ func TestConditionalOperationsNeedAMount(t *testing.T) {
 		t.Errorf("RenameIfMatch: %v", err)
 	}
 }
+
+// conflictServer answers the first MOVE with 409 Conflict -- RFC 4918's
+// answer when the destination's parent collection does not exist -- and any
+// later MOVE with 201, as a server would once something created that parent.
+// It records every MOVE and MKCOL, and serves everything else from an
+// in-process WebDAV handler.
+func conflictServer(t *testing.T) (url string, requests func() []recordedRequest) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []recordedRequest
+	moves := 0
+	handler := &dav.Handler{FileSystem: dav.Dir(t.TempDir()), LockSystem: dav.NewMemLS()}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "MOVE", "MKCOL":
+			mu.Lock()
+			defer mu.Unlock()
+			seen = append(seen, recordedRequest{r.Method, r.URL.Path, r.Header.Get("Destination"),
+				r.Header.Get("Overwrite"), r.Header.Get("If")})
+			if r.Method == "MOVE" {
+				moves++
+				if moves == 1 {
+					w.WriteHeader(http.StatusConflict)
+					return
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL, func() []recordedRequest {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]recordedRequest(nil), seen...)
+	}
+}
+
+// A conditional MOVE the server refuses because the destination's parent is
+// missing fails, and creates nothing: the parent may be a directory another
+// client removed, and recreating it -- as gowebdav's Rename does on a 409,
+// with an MKCOL no precondition covers, before retrying the MOVE -- would
+// undo that client's change (#85). The one MOVE sent still carries its If
+// header.
+func TestConditionalMoveIntoAMissingParentCreatesNothing(t *testing.T) {
+	for what, run := range map[string]func(d *WebDAVDriver) error{
+		"rename": func(d *WebDAVDriver) error {
+			return d.RenameIfMatch(1, "/a.txt", "/gone/b.txt", `"r"`, "")
+		},
+		"replacing rename": func(d *WebDAVDriver) error {
+			return d.RenameIfMatch(1, "/a.txt", "/gone/b.txt", `"r"`, `"r2"`)
+		},
+		"save": func(d *WebDAVDriver) error {
+			return api.WriteFileIfMatch(d, 1, "/c.txt", `"r"`, []byte("x"))
+		},
+		"create-only save": func(d *WebDAVDriver) error {
+			return api.WriteFileIfMatch(d, 1, "/c.txt", "", []byte("x"))
+		},
+	} {
+		t.Run(what, func(t *testing.T) {
+			url, requests := conflictServer(t)
+			d := mount(t, url)
+			err := run(d)
+			if !errors.Is(err, api.ErrNotFound) {
+				t.Errorf("got %v, want ErrNotFound for the missing parent", err)
+			}
+			got := requests()
+			if len(got) != 1 || got[0].method != "MOVE" {
+				t.Fatalf("sent %+v; want the one MOVE and nothing after it", got)
+			}
+			if what != "create-only save" && got[0].ifHeader == "" {
+				t.Errorf("the MOVE carried no If header: %+v", got[0])
+			}
+		})
+	}
+}
