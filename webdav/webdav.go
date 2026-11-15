@@ -129,7 +129,7 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	d.pass = pass
 	d.pathPrefix = pathPrefix
 
-	d.auth = gowebdav.NewAutoAuth(user, pass)
+	d.auth = newAuthorizer(user, pass)
 	d.client = gowebdav.NewAuthClient(baseURL, d.auth)
 
 	// Wire a CountingTransport into gowebdav's underlying http.Client so

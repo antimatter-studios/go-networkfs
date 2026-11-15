@@ -23,7 +23,7 @@ chore_min_version: 0.6.0
 #
 # The rest are this repository's genuine extras, and they are extras because
 # this is not a filesystem driver crate: there is no VM, no fixture image and
-# no oracle tool. What it has instead is EIGHT SERVER CONTAINERS and a C ABI, so
+# no oracle tool. What it has instead is NINE SERVER CONTAINERS and a C ABI, so
 # `servers:*` and `test:cabi` are here and `fixtures`, `test:oracle` and
 # `test:kernel` are not. A task named after something this repository does not
 # have would be a lie a consumer could read.
@@ -38,9 +38,10 @@ chore_min_version: 0.6.0
 #   Google Drive and OneDrive cannot be run locally at all (test/mockapi stands
 #   in for those three, built from this repository so it cannot drift).
 #
-#   SIX OF THE EIGHT ARE BUILT HERE, NOT PULLED: samba, mockapi, and — since
-#   issues #16 and #20 — sftp and webdav, and since #91 sabredav and #102
-#   lighttpd, the second and third WebDAV servers. The two images those replaced
+#   SEVEN OF THE NINE ARE BUILT HERE, NOT PULLED: samba, mockapi, and — since
+#   issues #16 and #20 — sftp and webdav, since #91 sabredav and #102
+#   lighttpd, the second and third WebDAV servers, and since #100
+#   lighttpd-sess, lighttpd behind Digest MD5-sess. The two images those replaced
 #   published linux/amd64 manifests alone, so on an arm64 host they exited
 #   with "exec format error" and `servers.sh up` stopped at the first of them.
 #   The consumer of these archives is a macOS application, so an Apple Silicon
@@ -48,7 +49,7 @@ chore_min_version: 0.6.0
 #   multi-arch by construction. The two that are still pulled, sss3 and the
 #   FTP server, are pinned to a version.
 #
-#   ONE OF THE EIGHT NEEDS NO DAEMON. stupid-simple-s3 ships as a static binary
+#   ONE OF THE NINE NEEDS NO DAEMON. stupid-simple-s3 ships as a static binary
 #   as well as an image, so `chore test:s3` runs the pinned, checksummed binary
 #   (`s3-native`) and works on a machine with no Docker at all. `chore test`
 #   uses the container, because there every server sits on one network and the
@@ -455,9 +456,12 @@ tasks:
     # Apache's answer to a MOVE into a missing parent (500, not 409) left the
     # driver's 409 path with no independent oracle (#91), and sabre/dav gives
     # a directory no revision, which left conditional directory operations
-    # with Apache alone (#102).
+    # with Apache alone (#102). lighttpd-sess, lighttpd again behind Digest
+    # auth offering algorithm=MD5-sess, is for the Digest tests alone: Apache
+    # will not offer MD5-sess, and the answer needs checking by code that is
+    # not ours (#100).
     cmds:
-      - 'scripts/with-servers.sh webdav sabredav lighttpd -- bash ../rust-fs-core/scripts/tier.sh test:webdav webdav 20 2000 -- go test -race -count=1 -tags=webdav_integration -run Integration ./webdav/...'
+      - 'scripts/with-servers.sh webdav sabredav lighttpd lighttpd-sess -- bash ../rust-fs-core/scripts/tier.sh test:webdav webdav 20 2000 -- go test -race -count=1 -tags=webdav_integration -run Integration ./webdav/...'
 
   test:cabi:
     desc: "The C ABI, exercised from C against real servers — the only caller that can reach three of its entry points"
@@ -544,7 +548,7 @@ tasks:
   # ------------------------------------------------------------------- servers
 
   servers:up:
-    desc: "Start the test servers (samba s3 ftp sftp webdav sabredav lighttpd mockapi, or s3-native; default: all eight) and wait until each answers"
+    desc: "Start the test servers (samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess mockapi, or s3-native; default: all nine) and wait until each answers"
     # HERE SO A DEVELOPER CAN BRING THEM UP WITHOUT READING A MAKEFILE. It used
     # to take `make samba-up` — and knowing that `make test-smb` would take it
     # down again underneath you. Bring them up, run tests against them for an
