@@ -68,6 +68,7 @@ docker run --rm --network "$TEST_NETWORK" \
     -e SFTP_ADDR=sftp    -e SFTP_PORT=22 \
     -e DAV_ADDR=webdav   -e DAV_PORT=80 -e DAV_DIGEST_PORT=81 \
     -e DAV_SABRE_ADDR=sabredav -e DAV_SABRE_PORT=8080 \
+    -e DAV_LIGHTTPD_ADDR=lighttpd -e DAV_LIGHTTPD_PORT=80 \
     -e MOCK_ADDR=mockapi -e MOCK_PORT=8081 \
     -e OUTPUT_BUDGET_VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}" \
     -e CI="${CI:-}" -e GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \

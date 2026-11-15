@@ -8,7 +8,7 @@
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
 #
-#   NAME is one of: samba s3 ftp sftp webdav sabredav mockapi — or s3-native, the S3
+#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd mockapi — or s3-native, the S3
 #   server run as a plain binary with no Docker at all (see below).
 #
 # ONE SERVER HAS TWO SHAPES. stupid-simple-s3 ships as a single static binary
@@ -42,9 +42,9 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# `all` means these seven: the containers, on one network, which is what the
+# `all` means these eight: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav sabredav mockapi"
+ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd mockapi"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -309,6 +309,22 @@ up_sabredav() {
     echo "  sabredav 127.0.0.1:$DAV_SABRE_PORT (user $DAV_USER)"
 }
 
+# The third WebDAV server, lighttpd's mod_webdav, built from
+# .github/docker/lighttpd with the same account. Apache was the only server
+# that reports a collection's entity tag, so conditional operations on a
+# directory had one oracle (#102); the webdav integration tests run against
+# all three.
+up_lighttpd() {
+    build_image "$DAV_LIGHTTPD_IMAGE" -f .github/docker/lighttpd/Dockerfile .
+    rm_container "$DAV_LIGHTTPD_CONTAINER"
+    docker run -d --network "$TEST_NETWORK" --network-alias lighttpd \
+        --name "$DAV_LIGHTTPD_CONTAINER" -p "$DAV_LIGHTTPD_PORT:80" \
+        -e WEBDAVD_USER="$DAV_USER" -e WEBDAVD_PASS="$DAV_PASS" \
+        "$DAV_LIGHTTPD_IMAGE" >/dev/null
+    wait_for_port "$DAV_LIGHTTPD_CONTAINER" "$DAV_LIGHTTPD_PORT"
+    echo "  lighttpd 127.0.0.1:$DAV_LIGHTTPD_PORT (user $DAV_USER)"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
@@ -326,6 +342,7 @@ down_ftp()     { rm_container "$FTP_CONTAINER"; }
 down_sftp()    { rm_container "$SFTP_CONTAINER"; }
 down_webdav()  { rm_container "$DAV_CONTAINER"; }
 down_sabredav() { rm_container "$DAV_SABRE_CONTAINER"; }
+down_lighttpd() { rm_container "$DAV_LIGHTTPD_CONTAINER"; }
 down_mockapi() { rm_container "$MOCK_CONTAINER"; }
 
 container_of() {
@@ -336,6 +353,7 @@ container_of() {
         sftp)    echo "$SFTP_CONTAINER" ;;
         webdav)  echo "$DAV_CONTAINER" ;;
         sabredav) echo "$DAV_SABRE_CONTAINER" ;;
+        lighttpd) echo "$DAV_LIGHTTPD_CONTAINER" ;;
         mockapi) echo "$MOCK_CONTAINER" ;;
         *)       die "unknown server '$1' (known: $KNOWN_SERVERS)" ;;
     esac
