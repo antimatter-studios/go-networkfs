@@ -220,14 +220,8 @@ func networkfs_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
 	if !ok {
 		return 1
 	}
-	writer, err := driver.CreateFile(int(mountID), stringFromC(path))
-	if err != nil {
-		return 1
-	}
-	defer writer.Close()
-
 	goData := C.GoBytes(unsafe.Pointer(data.data), C.int(data.len))
-	if _, err := writer.Write(goData); err != nil {
+	if err := api.WriteFile(driver, int(mountID), stringFromC(path), goData); err != nil {
 		return 1
 	}
 	return 0
