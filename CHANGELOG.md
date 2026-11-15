@@ -8,6 +8,62 @@ pull request; a release gathers them into a section here.
 
 ## Unreleased
 
+## v0.2.0 — 2026-11-15
+
+### Added
+
+- `MountManager.Acquire` leases a mount for one operation. `Unmount`, and a `Mount` that replaces an ID, wait for leased operations to finish before tearing the old driver down, and refuse new leases at once. Both C archives use it for every operation (#69).
+
+### Changed
+
+- **The module path is `github.com/antimatter-studios/go-networkfs`.** The
+  repository moved from `christhomas`; importers change
+  `github.com/christhomas/go-networkfs/...` to the new path. No old-path
+  alias is kept.
+
+- Mounting an ID that is already mounted unmounts the driver it replaces (#69).
+
+- WebDAV `Mkdir` of a directory that already exists succeeds, and confirms with a PROPFIND that a directory is there (#67).
+
+- `webdav_unmount` of an ID that is not mounted returns 1, and every other export fails for an unknown ID, as the unified archive already did (#66).
+
+- **The family's scripts run in place from rust-fs-core, and this repository
+  keeps no copy.** `scripts/core.sh` and `scripts/tier.sh` are gone; CI and
+  chores run `../rust-fs-core/scripts/NAME.sh` at the pinned version
+  (rust-fs-core 0.3.3, #212).
+- **`scripts/resolve-output-budget.sh` is gone with the copies it served.**
+  `chore siblings` links the machine's one rust-fs-core checkout beside a
+  worktree, and the runner container mounts it at `/rust-fs-core`.
+
+### Fixed
+
+- `networkfs_writefile` and `webdav_writefile` refuse a buffer longer than 2^31 - 1 bytes, or a NULL buffer with a nonzero length, before reading it or sending anything. A 4 GiB length used to wrap to zero and replace the file with an empty one (#65).
+
+- `MountManager` is safe for concurrent use: mounting or unmounting one ID while other mounts are in use no longer races on the mount table (#69).
+
+- WebDAV `Mkdir` over an existing regular file fails and leaves the file alone. A server's 405 answer was read as success whatever was at the path (#67).
+
+- The standalone WebDAV archive keeps one driver per mount ID. Writes and unmounts used to reach whichever server was mounted last, and unmounting one ID disconnected every other (#66).
+
+- A WebDAV save over an existing file replaces it. The upload goes to a unique temporary resource beside the target and is published with a standard MOVE that overwrites, so a server that stores a colliding PUT under another name no longer leaves the old contents at the target (#71).
+- A failed WebDAV save, at PUT, part-way through PUT, or at MOVE, keeps the original contents, reports the error and removes its temporary upload (#68).
+- The unified and WebDAV C interfaces report a failed upload or a short write instead of returning success before checking the upload result (#71).
+
+- `networkfs_openfile` and `webdav_openfile` return failure when a download ends before its Content-Length, instead of returning success with the bytes received so far (#64).
+- A failed openfile now always sets `out.data` to NULL and `out.len` to 0, so the caller has nothing to free whatever the buffer held before (#64).
+
+- **A transient HTTP 5xx from the chore release download no longer fails a CI
+  job.** `scripts/ci-install-chore.sh` retries both downloads up to five times
+  on any error; the checksum check still guards what was fetched.
+
+### Security
+
+- **go.mod requires go1.26.10**, which distrusts the compromised intermediate
+  certificates in `crypto/x509` (GO-2026-6809).
+
+- **go.mod requires go1.26.11**, which fixes the `net/http` server crash from
+  a `MaxBytesReader` header race (GO-2026-6859).
+
 ## v0.1.5 — 2026-10-02
 
 ### Fixed
