@@ -31,7 +31,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CABI="$ROOT/scripts/cabi.sh"
 
-EXPECTED_CHECKS=26
+EXPECTED_CHECKS=28
 checks=0
 fails=0
 
@@ -108,20 +108,23 @@ done
 if [ "$harnesses" -eq 9 ]; then ok
 else fail "all nine harnesses were read" "found $harnesses"; fi
 
-# --- The eight driver harnesses agree on their numbers. --------------------
+# --- The seven plain driver harnesses agree on their numbers. -------------
 #
 # They are the same file with a prefix substituted, so a floor raised in one
-# and not the others is a mistake rather than a decision.
+# and not the others is a mistake rather than a decision. The WebDAV harness
+# began as the same file and has since gained tests of its own, against an
+# in-process HTTP fixture (#64, #65, #66) and against the test server (#67), so
+# it carries its own pair below, as the unified harness does.
 offline=""; mounted=""
 for h in "$ROOT"/test/cabi/test_*.c; do
-    case "$(basename "$h")" in test_networkfs.c) continue ;; esac
+    case "$(basename "$h")" in test_networkfs.c|test_webdav.c) continue ;; esac
     offline="$offline $(awk '/#define EXPECTED_CHECKS_OFFLINE/ {print $3}' "$h")"
     mounted="$mounted $(awk '/#define EXPECTED_CHECKS_MOUNTED/ {print $3}' "$h")"
 done
 if [ "$(printf '%s\n' $offline | sort -u | wc -l)" -eq 1 ]; then ok
-else fail "the eight driver harnesses share one offline floor" "$offline"; fi
+else fail "the seven plain driver harnesses share one offline floor" "$offline"; fi
 if [ "$(printf '%s\n' $mounted | sort -u | wc -l)" -eq 1 ]; then ok
-else fail "the eight driver harnesses share one mounted floor" "$mounted"; fi
+else fail "the seven plain driver harnesses share one mounted floor" "$mounted"; fi
 
 # The measured numbers, so a silent edit of either is a failure here and not
 # only in a job that needs six containers to run.
@@ -130,15 +133,17 @@ else fail "the driver harnesses' offline floor is the measured 17" "$offline"; f
 if [ "$(printf '%s\n' $mounted | sort -u)" = "28" ]; then ok
 else fail "the driver harnesses' mounted floor is the measured 28" "$mounted"; fi
 
-# The unified harness links all eight drivers and so has its own pair,
-# measured the same way: 26 with SMB_HOST unset, 44 with Samba up.
-u="$ROOT/test/cabi/test_networkfs.c"
-if [ "$(awk '/#define EXPECTED_CHECKS_OFFLINE/ {print $3}' "$u")" = "26" ]; then ok
-else fail "the unified harness's offline floor is the measured 26" \
-          "$(grep EXPECTED_CHECKS_OFFLINE "$u")"; fi
-if [ "$(awk '/#define EXPECTED_CHECKS_MOUNTED/ {print $3}' "$u")" = "44" ]; then ok
-else fail "the unified harness's mounted floor is the measured 44" \
-          "$(grep EXPECTED_CHECKS_MOUNTED "$u")"; fi
+# Each harness with tests of its own pins its own pair, measured the same way:
+# without and with its server. The unified harness links all eight drivers.
+check_floors() { # HARNESS OFFLINE MOUNTED
+    local h="$ROOT/test/cabi/$1"
+    if [ "$(awk '/#define EXPECTED_CHECKS_OFFLINE/ {print $3}' "$h")" = "$2" ]; then ok
+    else fail "$1's offline floor is the measured $2" "$(grep EXPECTED_CHECKS_OFFLINE "$h")"; fi
+    if [ "$(awk '/#define EXPECTED_CHECKS_MOUNTED/ {print $3}' "$h")" = "$3" ]; then ok
+    else fail "$1's mounted floor is the measured $3" "$(grep EXPECTED_CHECKS_MOUNTED "$h")"; fi
+}
+check_floors test_webdav.c 26 37
+check_floors test_networkfs.c 35 53
 
 # --- CI reaches the harnesses at all. --------------------------------------
 #
