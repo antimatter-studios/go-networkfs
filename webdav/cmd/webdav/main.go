@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"unsafe"
 
+	"github.com/antimatter-studios/go-networkfs/pkg/api"
 	"github.com/antimatter-studios/go-networkfs/webdav"
 )
 
@@ -171,14 +172,8 @@ func webdav_openfile(mountID C.int, path *C.char, out *C.ByteSlice) C.int {
 //
 //export webdav_writefile
 func webdav_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
-	writer, err := driver.CreateFile(int(mountID), stringFromC(path))
-	if err != nil {
-		return 1
-	}
-	defer writer.Close()
-
 	goData := C.GoBytes(unsafe.Pointer(data.data), C.int(data.len))
-	if _, err := writer.Write(goData); err != nil {
+	if err := api.WriteFile(driver, int(mountID), stringFromC(path), goData); err != nil {
 		return 1
 	}
 	return 0

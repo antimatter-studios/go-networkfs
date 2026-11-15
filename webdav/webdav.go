@@ -14,9 +14,11 @@ package webdav
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -290,7 +292,24 @@ func (w *webdavWriter) Close() (err error) {
 		return api.ErrNotConnected
 	}
 
-	return w.driver.client.Write(w.driver.fullPath(w.path), w.buf.Bytes(), 0644)
+	temporary := path.Join(path.Dir(w.path), ".networkfs-upload-"+rand.Text())
+	fullTemporary := w.driver.fullPath(temporary)
+	// A failed PUT can still leave part of the upload behind, so both a
+	// failed PUT and a failed MOVE remove this save's temporary resource.
+	// The target itself is never removed.
+	discard := func(err error) error {
+		if cleanupErr := w.driver.client.Remove(fullTemporary); cleanupErr != nil && !gowebdav.IsErrNotFound(cleanupErr) {
+			return fmt.Errorf("webdav save: %w; temporary upload cleanup failed: %v", err, cleanupErr)
+		}
+		return err
+	}
+	if err := w.driver.client.Write(fullTemporary, w.buf.Bytes(), 0644); err != nil {
+		return discard(err)
+	}
+	if err := w.driver.client.Rename(fullTemporary, w.driver.fullPath(w.path), true); err != nil {
+		return discard(err)
+	}
+	return nil
 }
 
 func (d *WebDAVDriver) CreateFile(mountID int, path string) (io.WriteCloser, error) {
