@@ -48,7 +48,10 @@ var _ api.ConditionalDriver = (*WebDAVDriver)(nil)
 var entityTag = regexp.MustCompile(`^(W/)?"[\x21\x23-\x7e\x80-\xff]*"$`)
 
 // revisionOf returns the entity tag gowebdav parsed from a PROPFIND, or empty
-// when the server reported none.
+// when the server reported none. It is reported exactly as the server sent
+// it, W/ and all: the weak tag a server gives a file changed in the last
+// second and the strong one it gives the same state later are two strings,
+// and api.SameRevision is what tells the caller they name one state (#94).
 func revisionOf(fi os.FileInfo) string {
 	if tagged, ok := fi.(interface{ ETag() string }); ok {
 		return strings.TrimSpace(tagged.ETag())

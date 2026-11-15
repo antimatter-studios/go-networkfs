@@ -21,7 +21,8 @@ type FileInfo struct {
 	ModTime int64  `json:"mod_time"`
 	Mode    uint32 `json:"mode"`
 	// Revision is the server's opaque identifier for this state of the
-	// file, or empty when the driver reports none. See conditional.go.
+	// file, or empty when the driver reports none. Compare two with
+	// SameRevision, not ==. See conditional.go.
 	Revision string `json:"revision,omitempty"`
 }
 

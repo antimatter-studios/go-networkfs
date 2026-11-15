@@ -142,8 +142,8 @@ check_floors() { # HARNESS OFFLINE MOUNTED
     if [ "$(awk '/#define EXPECTED_CHECKS_MOUNTED/ {print $3}' "$h")" = "$3" ]; then ok
     else fail "$1's mounted floor is the measured $3" "$(grep EXPECTED_CHECKS_MOUNTED "$h")"; fi
 }
-check_floors test_webdav.c 52 96
-check_floors test_networkfs.c 49 81
+check_floors test_webdav.c 59 103
+check_floors test_networkfs.c 56 88
 
 # --- CI reaches the harnesses at all. --------------------------------------
 #

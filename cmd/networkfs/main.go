@@ -5,6 +5,7 @@
 // networkfs_stat, networkfs_listdir, networkfs_openfile, networkfs_writefile,
 // networkfs_mkdir, networkfs_remove, networkfs_rename, networkfs_writefile_if,
 // networkfs_writefile_if_revision, networkfs_remove_if, networkfs_rename_if,
+// networkfs_same_revision,
 // networkfs_get_thumbnail, networkfs_free.
 //
 // Unlike the per-driver libraries (libftp.a, libsftp.a, etc.), this archive
@@ -307,7 +308,8 @@ func networkfs_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
 // --- conditional mutations -------------------------------------------------
 //
 // A revision is the opaque "revision" string from networkfs_stat or
-// networkfs_listdir, passed back exactly as it was received. The caller owns
+// networkfs_listdir, passed back exactly as it was received, and compared
+// with networkfs_same_revision, never with strcmp. The caller owns
 // every string it passes; nothing is retained after the call returns. A NULL
 // revision is the same as an empty one.
 //
@@ -419,6 +421,21 @@ func networkfs_rename_if(mountID C.int, oldPath *C.char, newPath *C.char, oldRev
 	defer release()
 	return conditionalStatus(api.RenameIfMatch(driver, int(mountID), stringFromC(oldPath), stringFromC(newPath),
 		stringFromC(oldRevision), stringFromC(newRevision)))
+}
+
+// Returns 1 if revisions a and b, as networkfs_stat and networkfs_listdir report
+// them, name the same state of a file, and 0 otherwise. Compare revisions
+// with it, never with strcmp: a server can report one state as two
+// different strings (a WebDAV entity tag marked weak, W/"x", and later the
+// same tag strong, "x"). An empty or NULL revision names no state, so it is
+// never the same as anything.
+//
+//export networkfs_same_revision
+func networkfs_same_revision(a *C.char, b *C.char) C.int {
+	if api.SameRevision(stringFromC(a), stringFromC(b)) {
+		return 1
+	}
+	return 0
 }
 
 // Returns thumbnail bytes via out (caller must free out.data with

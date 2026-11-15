@@ -5,6 +5,7 @@
 // webdav_listdir, webdav_openfile, webdav_writefile, webdav_mkdir,
 // webdav_remove, webdav_rename, webdav_writefile_if,
 // webdav_writefile_if_revision, webdav_remove_if, webdav_rename_if,
+// webdav_same_revision,
 // webdav_free.
 //
 // NOTE: cgo marshaling helpers (stringFromC, jsonToC, setOutString, …)
@@ -281,7 +282,8 @@ func webdav_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
 // --- conditional mutations -------------------------------------------------
 //
 // A revision is the opaque "revision" string from webdav_stat or
-// webdav_listdir, passed back exactly as it was received. The caller owns
+// webdav_listdir, passed back exactly as it was received, and compared
+// with webdav_same_revision, never with strcmp. The caller owns
 // every string it passes; nothing is retained after the call returns. A NULL
 // revision is the same as an empty one.
 //
@@ -393,6 +395,21 @@ func webdav_rename_if(mountID C.int, oldPath *C.char, newPath *C.char, oldRevisi
 	defer release()
 	return conditionalStatus(api.RenameIfMatch(driver, int(mountID), stringFromC(oldPath), stringFromC(newPath),
 		stringFromC(oldRevision), stringFromC(newRevision)))
+}
+
+// Returns 1 if revisions a and b, as webdav_stat and webdav_listdir report
+// them, name the same state of a file, and 0 otherwise. Compare revisions
+// with it, never with strcmp: a server can report one state as two
+// different strings (a WebDAV entity tag marked weak, W/"x", and later the
+// same tag strong, "x"). An empty or NULL revision names no state, so it is
+// never the same as anything.
+//
+//export webdav_same_revision
+func webdav_same_revision(a *C.char, b *C.char) C.int {
+	if api.SameRevision(stringFromC(a), stringFromC(b)) {
+		return 1
+	}
+	return 0
 }
 
 // Frees memory allocated by webdav_stat, webdav_listdir, webdav_openfile,
