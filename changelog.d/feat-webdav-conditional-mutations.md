@@ -1,0 +1,4 @@
+### Added
+- `FileInfo` carries the server's opaque `revision` (for WebDAV, the entity tag), so stat and listdir report it through Go and through the C interfaces' JSON (#70).
+- Conditional write, remove and rename: `api.WriteFileIfMatch`, `api.RemoveIfMatch` and `api.RenameIfMatch` in Go, and `networkfs_writefile_if`, `networkfs_remove_if`, `networkfs_rename_if` with their `webdav_` equivalents in C. The server refuses a stale revision while it applies the change, so a client can no longer replace or remove another client's newer edit; a conflict is reported distinctly (`api.ErrPreconditionFailed`, C return code 2) and changes nothing (#70).
+- A driver that cannot have the condition enforced refuses every conditional operation (`api.ErrConditionNotSupported`, C return code 3) instead of performing it unconditionally. WebDAV is the only driver that supports them (#70).
