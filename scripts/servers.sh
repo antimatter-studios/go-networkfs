@@ -8,7 +8,7 @@
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
 #
-#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi — or s3-native, the S3
+#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid mockapi — or s3-native, the S3
 #   server run as a plain binary with no Docker at all (see below).
 #
 # ONE SERVER HAS TWO SHAPES. stupid-simple-s3 ships as a single static binary
@@ -42,9 +42,9 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# `all` means these ten: the containers, on one network, which is what the
+# `all` means these eleven: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi"
+ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid mockapi"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -358,6 +358,19 @@ up_lighttpd_sha256() {
          "127.0.0.1:$DAV_LIGHTTPD_SHA256_MD5_PORT (digest SHA-256 then MD5)"
 }
 
+# Squid, a forward HTTP proxy, built from .github/docker/squid. The Digest
+# tests reach the webdav and lighttpd-sess servers through it, by their names
+# on the test network, to show a Digest answer survives a proxy that rewrites
+# the request line (#110).
+up_squid() {
+    build_image "$PROXY_IMAGE" .github/docker/squid
+    rm_container "$PROXY_CONTAINER"
+    docker run -d --network "$TEST_NETWORK" --network-alias squid \
+        --name "$PROXY_CONTAINER" -p "$PROXY_PORT:3128" "$PROXY_IMAGE" >/dev/null
+    wait_for_port "$PROXY_CONTAINER" "$PROXY_PORT"
+    echo "  squid    127.0.0.1:$PROXY_PORT (forward proxy onto $TEST_NETWORK)"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
@@ -378,6 +391,7 @@ down_sabredav() { rm_container "$DAV_SABRE_CONTAINER"; }
 down_lighttpd() { rm_container "$DAV_LIGHTTPD_CONTAINER"; }
 down_lighttpd_sess() { rm_container "$DAV_LIGHTTPD_SESS_CONTAINER"; }
 down_lighttpd_sha256() { rm_container "$DAV_LIGHTTPD_SHA256_CONTAINER"; }
+down_squid()   { rm_container "$PROXY_CONTAINER"; }
 down_mockapi() { rm_container "$MOCK_CONTAINER"; }
 
 container_of() {
@@ -391,6 +405,7 @@ container_of() {
         lighttpd) echo "$DAV_LIGHTTPD_CONTAINER" ;;
         lighttpd-sess) echo "$DAV_LIGHTTPD_SESS_CONTAINER" ;;
         lighttpd-sha256) echo "$DAV_LIGHTTPD_SHA256_CONTAINER" ;;
+        squid)   echo "$PROXY_CONTAINER" ;;
         mockapi) echo "$MOCK_CONTAINER" ;;
         *)       die "unknown server '$1' (known: $KNOWN_SERVERS)" ;;
     esac

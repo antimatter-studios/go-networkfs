@@ -29,6 +29,7 @@ DAV_SABRE_ADDR="${DAV_SABRE_ADDR:-127.0.0.1}"
 DAV_LIGHTTPD_ADDR="${DAV_LIGHTTPD_ADDR:-127.0.0.1}"
 DAV_LIGHTTPD_SESS_ADDR="${DAV_LIGHTTPD_SESS_ADDR:-127.0.0.1}"
 DAV_LIGHTTPD_SHA256_ADDR="${DAV_LIGHTTPD_SHA256_ADDR:-127.0.0.1}"
+PROXY_ADDR="${PROXY_ADDR:-127.0.0.1}"
 MOCK_ADDR="${MOCK_ADDR:-127.0.0.1}"
 
 # The servers join this network so the runner container can reach them by name.
@@ -161,6 +162,19 @@ DAV_LIGHTTPD_SHA256_MD5_PORT="${DAV_LIGHTTPD_SHA256_MD5_PORT:-8087}"
 DAV_LIGHTTPD_SHA256_IMAGE="${DAV_LIGHTTPD_SHA256_IMAGE:-go-networkfs-lighttpd-sha256:test}"
 DAV_LIGHTTPD_SHA256_CONTAINER="${DAV_LIGHTTPD_SHA256_CONTAINER:-go-networkfs-lighttpd-sha256}"
 
+# A FORWARD PROXY, Squid, BUILT FROM .github/docker/squid. Go sends a plain
+# http:// request through a proxy with the absolute-form request-target, and
+# the driver signs each Digest answer for the origin form, so the Digest tests
+# go through a real proxy to the webdav and lighttpd-sess servers to show the
+# answer is still accepted (#110). Those servers are reached through it BY
+# THEIR NAMES on the test network and on their internal ports, which is the
+# same address whether the tests run on the host or in the runner: from the
+# host, only the proxy can reach them there, so nothing goes around it. It
+# listens on 3128 inside the container because it runs unprivileged.
+PROXY_PORT="${PROXY_PORT:-8088}"
+PROXY_IMAGE="${PROXY_IMAGE:-go-networkfs-squid:test}"
+PROXY_CONTAINER="${PROXY_CONTAINER:-go-networkfs-squid}"
+
 # Dropbox, Google Drive and OneDrive cannot be run locally the way Samba can.
 # One mock API stands in for all three, built from test/mockapi in this repo.
 MOCK_PORT="${MOCK_PORT:-8081}"
@@ -178,7 +192,7 @@ MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 # SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
 # guard (scripts/tests/suite-env.sh) can hold the two to each other.
 # shellcheck disable=SC2034  # read by servers.sh, which sources this file
-SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_DIGEST_URL WEBDAV_SABRE_URL WEBDAV_LIGHTTPD_URL WEBDAV_LIGHTTPD_SESS_URL WEBDAV_LIGHTTPD_SHA256_URL WEBDAV_LIGHTTPD_SHA256_MD5_URL WEBDAV_USER WEBDAV_PASS"
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_DIGEST_URL WEBDAV_SABRE_URL WEBDAV_LIGHTTPD_URL WEBDAV_LIGHTTPD_SESS_URL WEBDAV_LIGHTTPD_SHA256_URL WEBDAV_LIGHTTPD_SHA256_MD5_URL WEBDAV_PROXY_URL WEBDAV_PROXIED_DIGEST_URL WEBDAV_PROXIED_LIGHTTPD_SESS_URL WEBDAV_USER WEBDAV_PASS"
 export_suite_env() {
     export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
     export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
@@ -191,6 +205,10 @@ export_suite_env() {
     export WEBDAV_LIGHTTPD_SESS_URL="http://$DAV_LIGHTTPD_SESS_ADDR:$DAV_LIGHTTPD_SESS_PORT"
     export WEBDAV_LIGHTTPD_SHA256_URL="http://$DAV_LIGHTTPD_SHA256_ADDR:$DAV_LIGHTTPD_SHA256_PORT"
     export WEBDAV_LIGHTTPD_SHA256_MD5_URL="http://$DAV_LIGHTTPD_SHA256_ADDR:$DAV_LIGHTTPD_SHA256_MD5_PORT"
+    export WEBDAV_PROXY_URL="http://$PROXY_ADDR:$PROXY_PORT"
+    # The network aliases and internal ports servers.sh gives those two.
+    export WEBDAV_PROXIED_DIGEST_URL="http://webdav:81"
+    export WEBDAV_PROXIED_LIGHTTPD_SESS_URL="http://lighttpd-sess:8080"
 }
 
 # Every driver whose integration tests are behind a build tag and need a

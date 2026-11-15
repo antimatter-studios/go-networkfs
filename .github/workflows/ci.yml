@@ -180,7 +180,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Everything runs inside containers: ten servers for the drivers that
+      # Everything runs inside containers: eleven servers for the drivers that
       # need one, and a runner carrying the Go toolchain, a C compiler and
       # chore. No toolchain is installed on this runner, so what CI executes is
       # what a contributor executes with `chore test`.

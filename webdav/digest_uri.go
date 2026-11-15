@@ -24,6 +24,14 @@ package webdav
 // and for a -sess algorithm the session key is computed from that nonce and
 // client nonce. Basic credentials, an algorithm RFC 7616 does not define and
 // other qualities of protection go out as they came.
+//
+// That request URI is the origin form, "/path?query", even when the request
+// goes out through an HTTP proxy, to which Go sends the absolute form,
+// "http://host/path". The proxy forwards the request to the origin server in
+// origin form (RFC 9112 3.2.1), and the origin server is the one that checks
+// the answer, against the request line it received. lighttpd refuses an
+// answer signed for the absolute form; Apache takes either. The integration
+// tests go through a real proxy, Squid, to both (#110).
 
 import (
 	"net/http"
