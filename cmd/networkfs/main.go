@@ -161,11 +161,12 @@ func networkfs_unmount(mountID C.int) C.int {
 //
 //export networkfs_stat
 func networkfs_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		setOutString(outJSON, "mount not found")
 		return 1
 	}
+	defer release()
 	info, err := driver.Stat(int(mountID), stringFromC(path))
 	if err != nil {
 		setOutString(outJSON, C.GoString(errorToC(err)))
@@ -179,11 +180,12 @@ func networkfs_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
 //
 //export networkfs_listdir
 func networkfs_listdir(mountID C.int, path *C.char, outJSON **C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		setOutString(outJSON, "mount not found")
 		return 1
 	}
+	defer release()
 	entries, err := driver.ListDir(int(mountID), stringFromC(path))
 	if err != nil {
 		setOutString(outJSON, C.GoString(errorToC(err)))
@@ -213,10 +215,11 @@ func networkfs_openfile(mountID C.int, path *C.char, out *C.ByteSlice) C.int {
 	}
 	out.data = nil
 	out.len = 0
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		return 1
 	}
+	defer release()
 	reader, err := driver.OpenFile(int(mountID), stringFromC(path))
 	if err != nil {
 		return 1
@@ -247,10 +250,11 @@ func networkfs_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
 	if !ok {
 		return 1
 	}
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		return 1
 	}
+	defer release()
 	if err := api.WriteFile(driver, int(mountID), stringFromC(path), goData); err != nil {
 		return 1
 	}
@@ -259,10 +263,11 @@ func networkfs_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
 
 //export networkfs_mkdir
 func networkfs_mkdir(mountID C.int, path *C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		return 1
 	}
+	defer release()
 	if err := driver.Mkdir(int(mountID), stringFromC(path)); err != nil {
 		return 1
 	}
@@ -271,10 +276,11 @@ func networkfs_mkdir(mountID C.int, path *C.char) C.int {
 
 //export networkfs_remove
 func networkfs_remove(mountID C.int, path *C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		return 1
 	}
+	defer release()
 	if err := driver.Remove(int(mountID), stringFromC(path)); err != nil {
 		return 1
 	}
@@ -283,10 +289,11 @@ func networkfs_remove(mountID C.int, path *C.char) C.int {
 
 //export networkfs_rename
 func networkfs_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		return 1
 	}
+	defer release()
 	if err := driver.Rename(int(mountID), stringFromC(oldPath), stringFromC(newPath)); err != nil {
 		return 1
 	}
@@ -300,11 +307,12 @@ func networkfs_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
 //export networkfs_get_thumbnail
 func networkfs_get_thumbnail(mountID C.int, path *C.char, sizePx C.int,
 	out *C.ByteSlice, outErr **C.char) C.int {
-	driver, ok := manager.Get(int(mountID))
+	driver, release, ok := manager.Acquire(int(mountID))
 	if !ok {
 		setOutString(outErr, "mount not found")
 		return 1
 	}
+	defer release()
 	t, ok := driver.(api.Thumbnailer)
 	if !ok {
 		setOutString(outErr, "driver does not support thumbnails")

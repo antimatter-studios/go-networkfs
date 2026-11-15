@@ -7,7 +7,10 @@
 
 package api
 
-import "io"
+import (
+	"io"
+	"sync"
+)
 
 // FileInfo represents metadata about a file or directory
 type FileInfo struct {
@@ -97,17 +100,48 @@ func ListDriverTypes() []int {
 	return types
 }
 
-// MountManager tracks active driver instances by mountID
+// MountManager tracks active driver instances by mountID.
+//
+// It is safe for concurrent use. A host calls it from many threads at once,
+// so the mount table is guarded by its own lock, which is held only while the
+// table is read or changed and never across a network call: an operation on
+// one mount never waits for another mount's I/O.
+//
+// An operation's lifetime is a lease from Acquire. Unmount, and a Mount that
+// replaces an ID, take the mount out of the table at once, so no new lease is
+// granted, then wait for the leases already granted to be released before
+// they call the old driver's Unmount. A driver is therefore never torn down
+// under an operation that is still using it.
 type MountManager struct {
-	mounts map[int]Driver
+	mu     sync.RWMutex
+	mounts map[int]*mountEntry
+}
+
+// mountEntry is one mounted driver. Operations hold inUse for reading for as
+// long as they use the driver; teardown holds it for writing.
+type mountEntry struct {
+	mountID int
+	driver  Driver
+	inUse   sync.RWMutex
+}
+
+// retire waits for every lease on the entry to be released, then unmounts
+// its driver. The entry is already out of the table, so no lease can follow.
+func (e *mountEntry) retire() error {
+	e.inUse.Lock()
+	defer e.inUse.Unlock()
+	return e.driver.Unmount(e.mountID)
 }
 
 func NewMountManager() *MountManager {
 	return &MountManager{
-		mounts: make(map[int]Driver),
+		mounts: make(map[int]*mountEntry),
 	}
 }
 
+// Mount creates a driver of driverType, mounts it, and records it under
+// mountID. A mount already recorded under mountID is replaced, and then
+// unmounted once its in-flight operations finish.
 func (m *MountManager) Mount(mountID, driverType int, config map[string]string) error {
 	driver, ok := GetDriver(driverType)
 	if !ok {
@@ -116,31 +150,74 @@ func (m *MountManager) Mount(mountID, driverType int, config map[string]string) 
 	if err := driver.Mount(mountID, config); err != nil {
 		return err
 	}
-	m.mounts[mountID] = driver
+	m.mu.Lock()
+	old := m.mounts[mountID]
+	m.mounts[mountID] = &mountEntry{mountID: mountID, driver: driver}
+	m.mu.Unlock()
+	if old != nil {
+		_ = old.retire()
+	}
 	return nil
 }
 
+// Unmount removes mountID, waits for its in-flight operations to finish, and
+// unmounts its driver. Other mounts are not affected.
 func (m *MountManager) Unmount(mountID int) error {
-	driver, ok := m.mounts[mountID]
+	m.mu.Lock()
+	entry, ok := m.mounts[mountID]
+	delete(m.mounts, mountID)
+	m.mu.Unlock()
 	if !ok {
 		return ErrMountNotFound
 	}
-	delete(m.mounts, mountID)
-	return driver.Unmount(mountID)
+	return entry.retire()
 }
 
+// Acquire leases the driver mounted under mountID for one operation. The
+// caller must call release when the operation is finished; until then the
+// driver is not unmounted. ok is false when nothing is mounted under mountID,
+// and release is then a no-op.
+func (m *MountManager) Acquire(mountID int) (driver Driver, release func(), ok bool) {
+	m.mu.RLock()
+	entry := m.mounts[mountID]
+	m.mu.RUnlock()
+	if entry == nil {
+		return nil, func() {}, false
+	}
+	entry.inUse.RLock()
+	// The entry may have been retired between the lookup and the lease. Only
+	// the entry still in the table may be used.
+	m.mu.RLock()
+	current := m.mounts[mountID] == entry
+	m.mu.RUnlock()
+	if !current {
+		entry.inUse.RUnlock()
+		return nil, func() {}, false
+	}
+	return entry.driver, entry.inUse.RUnlock, true
+}
+
+// Get returns the driver mounted under mountID without leasing it. Nothing
+// stops it being unmounted while the caller uses it; an operation should use
+// Acquire instead.
 func (m *MountManager) Get(mountID int) (Driver, bool) {
-	d, ok := m.mounts[mountID]
-	return d, ok
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entry, ok := m.mounts[mountID]
+	if !ok {
+		return nil, false
+	}
+	return entry.driver, true
 }
 
 // Stats returns the per-mount transport counters for `mountID`, or
 // nil when the mount doesn't exist or its driver doesn't implement
 // StatsProvider (FTP/SFTP/SMB today). Callers should treat a nil
 // return as "all zeros" — the C ABI does this so non-HTTP mounts
-// surface harmless empty snapshots instead of errors.
+// surface harmless empty snapshots instead of errors. The counters are
+// atomic, so reading them needs no lease.
 func (m *MountManager) Stats(mountID int) *MountStats {
-	d, ok := m.mounts[mountID]
+	d, ok := m.Get(mountID)
 	if !ok {
 		return nil
 	}
