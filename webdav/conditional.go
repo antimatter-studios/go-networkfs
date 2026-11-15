@@ -170,7 +170,7 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 	client, recorder := d.conditionalClient("MOVE", conditions...)
 	err := client.Rename(fullOld, fullNew, newRevision != "")
 	if recorder.status == http.StatusConflict {
-		return fmt.Errorf("webdav: MOVE to %s: %w: its parent collection does not exist (HTTP 409)", fullNew, api.ErrNotFound)
+		return parentConflict(fullNew)
 	}
 	return conditionResult(err, recorder, oldRevision != "")
 }

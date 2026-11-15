@@ -350,7 +350,7 @@ func (d *WebDAVDriver) CreateFile(mountID int, path string) (io.WriteCloser, err
 	}
 	w := &webdavWriter{driver: d, path: path}
 	w.commit = func(fullTemporary string) error {
-		return d.client.Rename(fullTemporary, d.fullPath(path), true)
+		return d.rename(fullTemporary, d.fullPath(path))
 	}
 	return w, nil
 }
@@ -418,5 +418,5 @@ func (d *WebDAVDriver) Rename(mountID int, oldPath, newPath string) (err error) 
 	if !d.connected || d.client == nil {
 		return api.ErrNotConnected
 	}
-	return d.client.Rename(d.fullPath(oldPath), d.fullPath(newPath), true)
+	return d.rename(d.fullPath(oldPath), d.fullPath(newPath))
 }
