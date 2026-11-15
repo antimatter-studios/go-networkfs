@@ -201,11 +201,11 @@ func TestOperationsOnUnmountedDriver(t *testing.T) {
 		}
 	})
 
-	// Unmount is idempotent by design, so unlike the others it succeeds:
-	// tearing down what was never set up is not an error.
-	t.Run("unmount is idempotent", func(t *testing.T) {
-		if rc := webdav_unmount(99); int(rc) != 0 {
-			t.Errorf("unmount of a never-mounted driver returned %d, want 0", int(rc))
+	// Each mount ID names its own driver (#66), so an ID that was never
+	// mounted names nothing and unmounting it fails like every other call.
+	t.Run("unmount of an unknown ID fails", func(t *testing.T) {
+		if rc := webdav_unmount(99); int(rc) == 0 {
+			t.Error("unmount of a never-mounted ID succeeded")
 		}
 	})
 }

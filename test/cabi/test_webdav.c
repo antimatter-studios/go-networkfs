@@ -29,14 +29,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 35
-// checks is the honest total; with it, all 46 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 45
+// checks is the honest total; with it, all 56 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 35
-#define EXPECTED_CHECKS_MOUNTED 46
+#define EXPECTED_CHECKS_OFFLINE 45
+#define EXPECTED_CHECKS_MOUNTED 56
 
 static void check(int cond, const char *what) {
     checks++;
@@ -105,9 +105,9 @@ static void test_operations_unmounted(void) {
     check(webdav_remove(99, "/p") != 0, "remove while unmounted fails");
     check(webdav_rename(99, "/a", "/b") != 0, "rename while unmounted fails");
 
-    // Unmount is idempotent by design: tearing down what was never set up is
-    // not an error.
-    check(webdav_unmount(99) == 0, "unmount of a never-mounted driver succeeds");
+    // Every mount ID names its own driver, so an ID that was never mounted
+    // names nothing, and unmounting it is an error (#66).
+    check(webdav_unmount(99) != 0, "unmount of a never-mounted ID fails");
 }
 
 // A download is all of the file or a failure, never a successful prefix (#64).
@@ -223,6 +223,53 @@ static void test_write_length_bounds(void) {
     webdav_unmount(id);
 }
 
+// Each mount ID is its own connection (#66).
+//
+// The archive kept one driver for every ID, so the last mount won: a write
+// through ID 11 landed on ID 12's server, and unmounting ID 11 disconnected
+// ID 12. Two fixtures stand in for two servers, each holding its own /save.
+static void test_mounts_are_isolated(void) {
+    http_fixture a, b;
+    if (fixture_start(&a) != 0 || fixture_start(&b) != 0) {
+        check(0, "the HTTP fixtures start");
+        return;
+    }
+    fixture_put(&a, "/save", "server A", 8, 0, 0);
+    fixture_put(&b, "/save", "server B", 8, 0, 0);
+
+    char cfg_a[256], cfg_b[256], body[64];
+    fixture_config(&a, cfg_a, sizeof cfg_a);
+    fixture_config(&b, cfg_b, sizeof cfg_b);
+    check(webdav_mount(11, cfg_a) == 0, "mount server A as ID 11");
+    check(webdav_mount(12, cfg_b) == 0, "mount server B as ID 12");
+
+    ByteSlice data;
+    data.data = "X";
+    data.len = 1;
+    check(webdav_writefile(11, "/save", data) == 0, "a write through ID 11 succeeds");
+    check(fixture_get(&a, "/save", body, sizeof body) == 1 && body[0] == 'X',
+          "the write through ID 11 reaches server A");
+    check(fixture_get(&b, "/save", body, sizeof body) == 8 && memcmp(body, "server B", 8) == 0,
+          "the write through ID 11 leaves server B unchanged");
+
+    check(webdav_unmount(11) == 0, "unmount ID 11");
+
+    ByteSlice out;
+    out.data = NULL;
+    out.len = 0;
+    check(webdav_openfile(12, "/save", &out) == 0, "ID 12 still reads after ID 11 is unmounted");
+    check(out.len == 8 && out.data != NULL && memcmp(out.data, "server B", 8) == 0,
+          "ID 12 reads server B's file");
+    if (out.data) webdav_free(out.data);
+
+    out.data = NULL;
+    out.len = 0;
+    check(webdav_openfile(11, "/save", &out) != 0, "an unmounted ID no longer reads");
+    if (out.data) webdav_free(out.data);
+
+    check(webdav_unmount(12) == 0, "unmount ID 12");
+}
+
 // Mounted round trip.
 //
 // Everything above only reaches the failure paths. The success paths are where
@@ -318,6 +365,7 @@ int main(void) {
     test_free_contract_under_repetition();
     test_download_fidelity();
     test_write_length_bounds();
+    test_mounts_are_isolated();
     test_mounted_round_trip();
 
     printf("webdav: %d checks, %d failures\n", checks, failures);
