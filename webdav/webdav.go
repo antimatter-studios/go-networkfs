@@ -287,6 +287,10 @@ type webdavWriter struct {
 	// revision is what a conditional save's commit established as the
 	// revision of the state it wrote, or "" (see CreateFileIfMatch).
 	revision string
+	// upload PUTs the buffered contents to the temporary resource (a full
+	// server path). CreateFile's creates missing parent directories as
+	// gowebdav's Write does; CreateFileIfMatch's creates nothing (#90).
+	upload func(fullTemporary string, data []byte) error
 }
 
 // Revision implements api.RevisionWriter.
@@ -327,7 +331,11 @@ func (w *webdavWriter) Close() (err error) {
 		}
 		return err
 	}
-	if err := w.driver.client.Write(fullTemporary, w.buf.Bytes(), 0644); err != nil {
+	upload := w.upload
+	if upload == nil {
+		upload = func(full string, data []byte) error { return w.driver.client.Write(full, data, 0644) }
+	}
+	if err := upload(fullTemporary, w.buf.Bytes()); err != nil {
 		return discard(err)
 	}
 	if err := w.commit(fullTemporary); err != nil {

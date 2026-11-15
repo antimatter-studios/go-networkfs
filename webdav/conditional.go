@@ -175,11 +175,31 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 	return conditionResult(err, recorder, oldRevision != "")
 }
 
+// uploadIntoExistingDirectory PUTs a conditional save's temporary upload, and
+// fails with ErrNotFound when the directory it goes into does not exist.
+//
+// gowebdav's Write answers a PUT's 404 or 409 -- a server's answer when the
+// parent collection is missing; Apache's is 409 -- by MKCOL-ing the missing
+// parents and repeating the PUT. No precondition covers that MKCOL: it would
+// recreate a directory another client removed before the save's conditional
+// MOVE is sent, and a create-only save would then succeed inside it (#90).
+// So the PUT goes through a client that sends it and nothing after it.
+func (d *WebDAVDriver) uploadIntoExistingDirectory(fullTemporary string, data []byte) error {
+	client, recorder := d.conditionalClient(http.MethodPut)
+	err := client.Write(fullTemporary, data, 0644)
+	if recorder.status == http.StatusNotFound || recorder.status == http.StatusConflict {
+		return fmt.Errorf("webdav: PUT %s: %w: its parent collection does not exist (HTTP %d)",
+			fullTemporary, api.ErrNotFound, recorder.status)
+	}
+	return err
+}
+
 // CreateFileIfMatch returns a writer that uploads on Close, replacing the file
 // at path only while it is at revision; an empty revision creates the file
 // only if nothing is at path. The upload goes to a temporary resource first,
 // as CreateFile's does, so a refused or failed save leaves the target and its
-// directory exactly as they were.
+// directory exactly as they were. A directory that does not exist is never
+// created: the save fails with ErrNotFound.
 func (d *WebDAVDriver) CreateFileIfMatch(mountID int, path, revision string) (io.WriteCloser, error) {
 	if !d.connected || d.client == nil {
 		return nil, api.ErrNotConnected
@@ -189,7 +209,7 @@ func (d *WebDAVDriver) CreateFileIfMatch(mountID int, path, revision string) (io
 			return nil, err
 		}
 	}
-	w := &webdavWriter{driver: d, path: path}
+	w := &webdavWriter{driver: d, path: path, upload: d.uploadIntoExistingDirectory}
 	w.commit = func(fullTemporary string) error {
 		uploaded := d.uploadRevision(fullTemporary)
 		if err := d.move(fullTemporary, d.fullPath(path), "", revision); err != nil {

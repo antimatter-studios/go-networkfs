@@ -419,3 +419,36 @@ func TestIntegrationConditionalSaveReturnsItsRevision(t *testing.T) {
 		t.Fatalf("saves left resources behind: %v", names)
 	}
 }
+
+// A conditional save into a directory another client removed is refused and
+// does not bring the directory back (#90). Apache answers the temporary
+// upload's PUT into the missing directory 409, which gowebdav's Write would
+// answer by MKCOL-ing the directory and repeating the PUT, before the
+// conditional MOVE is sent. A save at the revision A observed and a save that
+// only creates are both covered.
+func TestIntegrationConditionalSaveIntoARemovedDirectory(t *testing.T) {
+	a, b, dir := integrationClients(t)
+	sub := dir + "/sub"
+	path := sub + "/notes.txt"
+	if err := a.Mkdir(1, sub); err != nil {
+		t.Fatal(err)
+	}
+	save(t, a, 1, path, []byte("saved by A"))
+	observed := observe(t, a, 1, path)
+	if err := b.Remove(2, sub); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("A's stale save")); err == nil {
+		t.Fatal("save at the observed revision into the directory B removed succeeded")
+	}
+	absent(t, b, 2, sub)
+
+	if err := api.WriteFileIfMatch(a, 1, sub+"/new.txt", "", []byte("A's new file")); err == nil {
+		t.Fatal("create-only save into the directory B removed succeeded")
+	}
+	absent(t, b, 2, sub)
+	if names := listing(t, b, 2, dir); len(names) != 0 {
+		t.Fatalf("refused saves changed the namespace: %v", names)
+	}
+}
