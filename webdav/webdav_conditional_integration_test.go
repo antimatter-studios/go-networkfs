@@ -363,3 +363,59 @@ func TestIntegrationConditionalRenameIntoARemovedDirectory(t *testing.T) {
 		t.Fatalf("refused rename changed the namespace: %v", names)
 	}
 }
+
+// A conditional save returns the revision of the state it wrote (#84), so a
+// client never has to stat for it. A stat after the save can report another
+// client's later edit, and a client that adopted it would overwrite that edit
+// with its next save without a conflict. Here A carries each save's returned
+// revision into the next one; when B saves in between, A's next save is
+// refused, although a stat by A at that moment would have handed it a
+// revision its save would have gone through at.
+func TestIntegrationConditionalSaveReturnsItsRevision(t *testing.T) {
+	a, b, dir := integrationClients(t)
+	path := dir + "/revisions.txt"
+
+	created, err := api.WriteFileIfMatchRevision(a, 1, path, "", []byte("created by A"))
+	if err != nil {
+		t.Fatalf("create where nothing exists: %v", err)
+	}
+	if created == "" {
+		t.Fatal("a conditional create returned no revision")
+	}
+
+	// The returned revision is the file's: the server accepts a save at it.
+	saved, err := api.WriteFileIfMatchRevision(a, 1, path, created, []byte("saved by A"))
+	if err != nil {
+		t.Fatalf("save at the revision the create returned: %v", err)
+	}
+	if saved == "" {
+		t.Fatal("a conditional save returned no revision")
+	}
+	resaved, err := api.WriteFileIfMatchRevision(a, 1, path, saved, []byte("saved by A again"))
+	if err != nil {
+		t.Fatalf("save at the revision the previous save returned: %v", err)
+	}
+	if resaved == "" {
+		t.Fatal("a second conditional save returned no revision")
+	}
+
+	// B saves. What a stat would now report is B's revision, not A's.
+	save(t, b, 2, path, []byte("B's edit"))
+	if observed := observe(t, a, 1, path); observed.Revision == resaved {
+		t.Fatalf("B's save left the revision at %q, the one A's save returned", resaved)
+	}
+
+	// A's next save, at the revision its own save returned, is refused, and
+	// B's edit stays.
+	stale, err := api.WriteFileIfMatchRevision(a, 1, path, resaved, []byte("A's stale save"))
+	wantConflict(t, "save at the returned revision after B's edit", err)
+	if stale != "" {
+		t.Fatalf("a refused save returned revision %q", stale)
+	}
+	if got := contents(t, a, 1, path); string(got) != "B's edit" {
+		t.Fatalf("refused save changed the file: %q", got)
+	}
+	if names := listing(t, a, 1, dir); len(names) != 1 {
+		t.Fatalf("saves left resources behind: %v", names)
+	}
+}

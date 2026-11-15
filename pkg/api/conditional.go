@@ -26,6 +26,19 @@ import (
 // window between a check and a write for another client's edit to fall into.
 // When the precondition does not hold, nothing at the named paths changes and
 // the operation returns ErrPreconditionFailed.
+//
+// A conditional write returns the revision of the state it wrote
+// (WriteFileIfMatchRevision), which is the revision to give the next
+// conditional write. Never learn it by a Stat after the write: another
+// client's save can land between the two, the Stat then reports that save's
+// revision, and a write made at it replaces that client's edit without a
+// conflict. A driver returns the revision only when it can establish it
+// without that risk. When it cannot, the write still succeeded and the
+// revision is "": the caller does not know what is on the server now, and
+// treats the file as it would after a conflict -- read it again and
+// reconcile. Handing "" back to a conditional write asks that nothing exist
+// at the path, so a forgotten unknown revision is refused, never mistaken for
+// a known one.
 
 // ConditionalDriver is implemented by drivers whose server can enforce a
 // revision precondition on a mutation. The dispatcher type-asserts on it; a
@@ -35,7 +48,8 @@ type ConditionalDriver interface {
 	// CreateFileIfMatch returns a writer like CreateFile's, whose Close
 	// replaces the file at path only if the file there is still at revision.
 	// An empty revision requires that nothing exist at path, so a new file is
-	// created and an existing one is never replaced.
+	// created and an existing one is never replaced. A driver that can report
+	// the revision of the state Close wrote returns a RevisionWriter.
 	CreateFileIfMatch(mountID int, path, revision string) (io.WriteCloser, error)
 
 	// RemoveIfMatch removes the file or directory at path only if it is still
@@ -47,6 +61,16 @@ type ConditionalDriver interface {
 	// nothing exist at newPath; a non-empty one requires that newPath exist at
 	// that revision, and the move then replaces it.
 	RenameIfMatch(mountID int, oldPath, newPath, oldRevision, newRevision string) error
+}
+
+// RevisionWriter is the writer CreateFileIfMatch returns when its driver can
+// report the revision of the state the write created.
+type RevisionWriter interface {
+	io.WriteCloser
+	// Revision returns, after a Close that returned nil, the revision of the
+	// state that Close wrote. It is "" when the driver could not establish
+	// it without the risk of reporting another client's later write instead.
+	Revision() string
 }
 
 // Errors returned by the conditional operations.
@@ -67,21 +91,37 @@ var (
 // WriteFileIfMatch writes data to path through driver, replacing the file
 // only if it is still at revision (or, with an empty revision, only if no file
 // exists there). It returns ErrConditionNotSupported, having sent nothing,
-// when the driver cannot enforce the condition.
+// when the driver cannot enforce the condition. WriteFileIfMatchRevision is
+// the same write, and also returns the revision it created.
 func WriteFileIfMatch(driver Driver, mountID int, path, revision string, data []byte) error {
+	_, err := WriteFileIfMatchRevision(driver, mountID, path, revision, data)
+	return err
+}
+
+// WriteFileIfMatchRevision is WriteFileIfMatch, returning on success the
+// revision of the state the write created: the revision to hand the next
+// conditional write. It is "" when the driver cannot establish it (see the
+// package notes above ConditionalDriver), and always "" with an error.
+func WriteFileIfMatchRevision(driver Driver, mountID int, path, revision string, data []byte) (string, error) {
 	conditional, ok := driver.(ConditionalDriver)
 	if !ok {
-		return ErrConditionNotSupported
+		return "", ErrConditionNotSupported
 	}
 	writer, err := conditional.CreateFileIfMatch(mountID, path, revision)
 	if err != nil {
-		return err
+		return "", err
 	}
 	written, writeErr := writer.Write(data)
 	if writeErr == nil && written != len(data) {
 		writeErr = io.ErrShortWrite
 	}
-	return errors.Join(writeErr, writer.Close())
+	if err := errors.Join(writeErr, writer.Close()); err != nil {
+		return "", err
+	}
+	if reporter, ok := writer.(RevisionWriter); ok {
+		return reporter.Revision(), nil
+	}
+	return "", nil
 }
 
 // RemoveIfMatch removes path through driver only if it is still at revision.

@@ -4,8 +4,8 @@
 // Exports: networkfs_version, networkfs_mount, networkfs_unmount,
 // networkfs_stat, networkfs_listdir, networkfs_openfile, networkfs_writefile,
 // networkfs_mkdir, networkfs_remove, networkfs_rename, networkfs_writefile_if,
-// networkfs_remove_if, networkfs_rename_if, networkfs_get_thumbnail,
-// networkfs_free.
+// networkfs_writefile_if_revision, networkfs_remove_if, networkfs_rename_if,
+// networkfs_get_thumbnail, networkfs_free.
 //
 // Unlike the per-driver libraries (libftp.a, libsftp.a, etc.), this archive
 // links every registered driver and dispatches by driver_type at mount time.
@@ -357,6 +357,40 @@ func networkfs_writefile_if(mountID C.int, path *C.char, data C.ByteSlice, revis
 	}
 	defer release()
 	return conditionalStatus(api.WriteFileIfMatch(driver, int(mountID), stringFromC(path), stringFromC(revision), goData))
+}
+
+// Writes exactly as networkfs_writefile_if does, and on success sets *newRevision
+// to the revision of the state the write created: the revision to pass to the
+// next conditional write, obtained without a stat that could report another
+// client's later save instead. The string is allocated here and the caller
+// frees it with networkfs_free.
+//
+// *newRevision is NULL on every non-zero return, and also on a successful
+// write whose revision the driver could not establish. That NULL means the
+// write went through but what is on the server now is unknown: treat the file
+// as after a conflict -- read it again and reconcile -- and do not stat it for
+// a revision to carry forward. newRevision may itself be NULL, and the call
+// is then networkfs_writefile_if.
+//
+//export networkfs_writefile_if_revision
+func networkfs_writefile_if_revision(mountID C.int, path *C.char, data C.ByteSlice, revision *C.char, newRevision **C.char) C.int {
+	if newRevision != nil {
+		*newRevision = nil
+	}
+	goData, ok := bytesFromC(data)
+	if !ok {
+		return conditionalFailed
+	}
+	driver, release, ok := manager.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	created, err := api.WriteFileIfMatchRevision(driver, int(mountID), stringFromC(path), stringFromC(revision), goData)
+	if err == nil && created != "" && newRevision != nil {
+		*newRevision = C.CString(created)
+	}
+	return conditionalStatus(err)
 }
 
 // Removes path (a directory with its contents) only if it is at revision,
