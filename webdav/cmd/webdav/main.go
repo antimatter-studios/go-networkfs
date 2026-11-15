@@ -37,7 +37,10 @@ import (
 	"github.com/antimatter-studios/go-networkfs/webdav"
 )
 
-var driver = &webdav.WebDAVDriver{}
+// mounts holds one WebDAV driver per mount ID. Each driver is its own client
+// and connection, so a call names exactly one server, and unmounting one ID
+// leaves every other ID connected. An ID that is not mounted names nothing.
+var mounts = api.NewMountManager()
 
 // --- local cgo marshaling helpers (see NOTE above) -------------------------
 
@@ -121,7 +124,7 @@ func webdav_mount(mountID C.int, configJSON *C.char) C.int {
 	if err := jsonFromC(configJSON, &config); err != nil {
 		return -1 // Invalid JSON
 	}
-	if err := driver.Mount(int(mountID), config); err != nil {
+	if err := mounts.Mount(int(mountID), webdav.DriverTypeID, config); err != nil {
 		return 1 // Mount failed
 	}
 	return 0
@@ -129,7 +132,7 @@ func webdav_mount(mountID C.int, configJSON *C.char) C.int {
 
 //export webdav_unmount
 func webdav_unmount(mountID C.int) C.int {
-	if err := driver.Unmount(int(mountID)); err != nil {
+	if err := mounts.Unmount(int(mountID)); err != nil {
 		return 1
 	}
 	return 0
@@ -139,6 +142,11 @@ func webdav_unmount(mountID C.int) C.int {
 //
 //export webdav_stat
 func webdav_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		setOutString(outJSON, "mount not found")
+		return 1
+	}
 	info, err := driver.Stat(int(mountID), stringFromC(path))
 	if err != nil {
 		setOutString(outJSON, C.GoString(errorToC(err)))
@@ -152,6 +160,11 @@ func webdav_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
 //
 //export webdav_listdir
 func webdav_listdir(mountID C.int, path *C.char, outJSON **C.char) C.int {
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		setOutString(outJSON, "mount not found")
+		return 1
+	}
 	entries, err := driver.ListDir(int(mountID), stringFromC(path))
 	if err != nil {
 		setOutString(outJSON, C.GoString(errorToC(err)))
@@ -173,6 +186,10 @@ func webdav_openfile(mountID C.int, path *C.char, out *C.ByteSlice) C.int {
 	}
 	out.data = nil
 	out.len = 0
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		return 1
+	}
 	reader, err := driver.OpenFile(int(mountID), stringFromC(path))
 	if err != nil {
 		return 1
@@ -203,6 +220,10 @@ func webdav_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
 	if !ok {
 		return 1
 	}
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		return 1
+	}
 	if err := api.WriteFile(driver, int(mountID), stringFromC(path), goData); err != nil {
 		return 1
 	}
@@ -211,6 +232,10 @@ func webdav_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
 
 //export webdav_mkdir
 func webdav_mkdir(mountID C.int, path *C.char) C.int {
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		return 1
+	}
 	if err := driver.Mkdir(int(mountID), stringFromC(path)); err != nil {
 		return 1
 	}
@@ -219,6 +244,10 @@ func webdav_mkdir(mountID C.int, path *C.char) C.int {
 
 //export webdav_remove
 func webdav_remove(mountID C.int, path *C.char) C.int {
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		return 1
+	}
 	if err := driver.Remove(int(mountID), stringFromC(path)); err != nil {
 		return 1
 	}
@@ -227,6 +256,10 @@ func webdav_remove(mountID C.int, path *C.char) C.int {
 
 //export webdav_rename
 func webdav_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
+	driver, ok := mounts.Get(int(mountID))
+	if !ok {
+		return 1
+	}
 	if err := driver.Rename(int(mountID), stringFromC(oldPath), stringFromC(newPath)); err != nil {
 		return 1
 	}
