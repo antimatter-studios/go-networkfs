@@ -227,6 +227,20 @@ when they should land, not by theme.
 
 ## Changelog
 
+### v0.2.0 — 2026-11-15
+
+- The module path is `github.com/antimatter-studios/go-networkfs`;
+  importers change their import paths.
+- A WebDAV save over an existing file replaces it, and a failed save keeps
+  the original and leaves no temporary upload behind (#71, #68).
+- The C exports fail a truncated download (#64) and a write length they
+  cannot represent, which used to empty the file (#65).
+- The standalone WebDAV archive keeps one connection per mount ID (#66);
+  WebDAV `Mkdir` over a regular file fails (#67); `MountManager` is safe
+  for concurrent use (#69).
+- go.mod requires go1.26.11 (GO-2026-6809, GO-2026-6859). See
+  [CHANGELOG.md](CHANGELOG.md).
+
 ### v0.1.5 — 2026-10-02
 
 - A path of `//` is the root in every driver: it normalised to `""`, which
