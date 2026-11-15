@@ -23,8 +23,20 @@ import (
 // independent oracle is lighttpd: TestIntegrationDigestMD5SessMountWithPathInURL
 // and TestIntegrationDigestMD5SessDirectoryWithoutTrailingSlash.
 func TestDigestMD5SessSignedForTheRequestURI(t *testing.T) {
-	const user, password, realm, nonce = "testuser", "testpass", "md5-sess", "c2Vzcy1ub25jZQ"
-	hash := func(s string) string { sum := md5.Sum([]byte(s)); return hex.EncodeToString(sum[:]) }
+	checkDigestSignedForTheRequestURI(t, "MD5-sess", func(s string) string {
+		sum := md5.Sum([]byte(s))
+		return hex.EncodeToString(sum[:])
+	})
+}
+
+// checkDigestSignedForTheRequestURI is TestDigestMD5SessSignedForTheRequestURI
+// for a server that offers algorithm alone, whose H is hash. The response it
+// expects is computed here from RFC 7616's definitions, not by the driver's
+// digestAlgorithm, and for a -sess algorithm under the session key.
+func checkDigestSignedForTheRequestURI(t *testing.T, algorithm string, hash func(string) string) {
+	t.Helper()
+	const user, password, realm, nonce = "testuser", "testpass", "request-uri", "c2Vzcy1ub25jZQ"
+	sess := strings.HasSuffix(strings.ToLower(algorithm), "-sess")
 	var (
 		mu       sync.Mutex
 		rejected []string
@@ -35,7 +47,7 @@ func TestDigestMD5SessSignedForTheRequestURI(t *testing.T) {
 		scheme, rest, _ := strings.Cut(r.Header.Get("Authorization"), " ")
 		if scheme != "Digest" {
 			w.Header().Set("WWW-Authenticate",
-				fmt.Sprintf(`Digest realm="%s", nonce="%s", algorithm=MD5-sess, qop="auth"`, realm, nonce))
+				fmt.Sprintf(`Digest realm="%s", nonce="%s", algorithm=%s, qop="auth"`, realm, nonce, algorithm))
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -44,7 +56,10 @@ func TestDigestMD5SessSignedForTheRequestURI(t *testing.T) {
 			k, v, _ := strings.Cut(strings.TrimSpace(field), "=")
 			p[k] = strings.Trim(v, `"`)
 		}
-		session := hash(hash(user+":"+realm+":"+password) + ":" + nonce + ":" + p["cnonce"])
+		session := hash(user + ":" + realm + ":" + password)
+		if sess {
+			session = hash(session + ":" + nonce + ":" + p["cnonce"])
+		}
 		want := hash(strings.Join([]string{
 			session, nonce, p["nc"], p["cnonce"], "auth", hash(r.Method + ":" + r.RequestURI),
 		}, ":"))
@@ -53,7 +68,7 @@ func TestDigestMD5SessSignedForTheRequestURI(t *testing.T) {
 		replay := counted[p["cnonce"]+":"+p["nc"]]
 		counted[p["cnonce"]+":"+p["nc"]] = true
 		switch {
-		case p["algorithm"] != "MD5-sess":
+		case p["algorithm"] != algorithm:
 			rejected = append(rejected, fmt.Sprintf("%s %s answered with algorithm %q", r.Method, r.RequestURI, p["algorithm"]))
 		case p["uri"] != r.RequestURI:
 			rejected = append(rejected, fmt.Sprintf("%s %s signed for %q", r.Method, r.RequestURI, p["uri"]))

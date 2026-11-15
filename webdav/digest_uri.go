@@ -20,13 +20,12 @@ package webdav
 // mount's latest Digest session is answered afresh under that session, with
 // its next nonce count (digestSessions). Any other is signed again with the
 // nonce, client nonce and nonce count it carries; only uri and response
-// change, and for MD5-sess the session key is computed from that nonce and
-// client nonce. Basic credentials, other algorithms and other qualities of
-// protection go out as they came.
+// change, under the algorithm the answer names (digest_algorithm.go, #111),
+// and for a -sess algorithm the session key is computed from that nonce and
+// client nonce. Basic credentials, an algorithm RFC 7616 does not define and
+// other qualities of protection go out as they came.
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"net/http"
 	"strings"
 )
@@ -67,9 +66,10 @@ func (d *digestRequestURI) RoundTrip(request *http.Request) (*http.Response, err
 
 // signDigestFor returns a Digest authorization like the one given, signed for
 // uri: its uri parameter replaced and its response computed for that uri and
-// method under password (RFC 7616, section 3.4.1). An authorization already
-// signed for uri, another scheme, or an algorithm or quality of protection
-// this does not compute comes back as it was.
+// method under password, with the algorithm it names (RFC 7616, section
+// 3.4.1). An authorization already signed for uri, another scheme, or an
+// algorithm or quality of protection this does not compute comes back as it
+// was.
 func signDigestFor(authorization, method, uri, password string) string {
 	scheme, rest, _ := strings.Cut(authorization, " ")
 	if !strings.EqualFold(scheme, "Digest") {
@@ -83,30 +83,18 @@ func signDigestFor(authorization, method, uri, password string) string {
 	if value["uri"] == uri {
 		return authorization
 	}
-	ha1 := digestMD5(value["username"] + ":" + value["realm"] + ":" + password)
-	switch a := value["algorithm"]; {
-	case a == "" || strings.EqualFold(a, "MD5"):
-	case strings.EqualFold(a, "MD5-sess"):
-		// The session key, from the nonce and client nonce the answer
-		// already carries (RFC 7616 3.4.2).
-		if value["cnonce"] == "" {
-			return authorization
-		}
-		ha1 = digestMD5(ha1 + ":" + value["nonce"] + ":" + value["cnonce"])
-	default:
+	algorithm, ok := digestAlgorithmNamed(value["algorithm"])
+	if !ok || (algorithm.sess && value["cnonce"] == "") {
+		// An algorithm RFC 7616 does not define, or a -sess answer without
+		// the client nonce its session key was computed from (3.4.2).
 		return authorization
 	}
-	ha2 := digestMD5(method + ":" + uri)
-	var response string
-	switch value["qop"] {
-	case "":
-		response = digestMD5(ha1 + ":" + value["nonce"] + ":" + ha2)
-	case "auth":
-		response = digestMD5(ha1 + ":" + value["nonce"] + ":" + value["nc"] + ":" +
-			value["cnonce"] + ":auth:" + ha2)
-	default:
+	qop := value["qop"]
+	if qop != "" && qop != "auth" {
 		return authorization
 	}
+	ha1 := algorithm.ha1(value["username"], value["realm"], password, value["nonce"], value["cnonce"])
+	response := algorithm.response(ha1, method, uri, value["nonce"], value["nc"], value["cnonce"], qop)
 
 	var out strings.Builder
 	out.WriteString(scheme)
@@ -128,11 +116,6 @@ func signDigestFor(authorization, method, uri, password string) string {
 		}
 	}
 	return out.String()
-}
-
-func digestMD5(s string) string {
-	sum := md5.Sum([]byte(s)) //nolint:gosec // HTTP Digest auth's MD5 algorithm, not a choice made here.
-	return hex.EncodeToString(sum[:])
 }
 
 // digestQuote escapes a value for an HTTP quoted-string (RFC 9110, section

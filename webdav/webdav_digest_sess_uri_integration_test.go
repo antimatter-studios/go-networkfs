@@ -25,7 +25,15 @@ import (
 )
 
 func TestIntegrationDigestMD5SessMountWithPathInURL(t *testing.T) {
-	cfg := integrationConfig(t, lighttpdSessServer)
+	exerciseDigestMountWithPathInURL(t, lighttpdSessServer, "md5-sess")
+}
+
+// exerciseDigestMountWithPathInURL mounts a directory of server by its URL,
+// then makes, stats, reads and removes files under it, one with a space in
+// its name; tag names the directory and is each file's content.
+func exerciseDigestMountWithPathInURL(t *testing.T, server integrationServer, tag string) {
+	t.Helper()
+	cfg := integrationConfig(t, server)
 	root := cfg["url"]
 
 	// The directory the second mount is rooted at, made through a mount at
@@ -34,7 +42,7 @@ func TestIntegrationDigestMD5SessMountWithPathInURL(t *testing.T) {
 	if err := top.Mount(1, cfg); err != nil {
 		t.Fatalf("mount %s: %v", root, err)
 	}
-	dir := "/md5-sess-path-" + strings.ToLower(rand.Text()[:10])
+	dir := "/" + tag + "-path-" + strings.ToLower(rand.Text()[:10])
 	if err := top.Mkdir(1, dir+"/"); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
@@ -54,11 +62,11 @@ func TestIntegrationDigestMD5SessMountWithPathInURL(t *testing.T) {
 		t.Fatalf("mkdir /sub under %s: %v", cfg["url"], err)
 	}
 	for _, name := range []string{"/sub/file.txt", "/sub/with space.txt"} {
-		save(t, d, 1, name, []byte("md5-sess"))
-		if info := stat(t, d, 1, name); info.Size != int64(len("md5-sess")) || info.IsDir {
+		save(t, d, 1, name, []byte(tag))
+		if info := stat(t, d, 1, name); info.Size != int64(len(tag)) || info.IsDir {
 			t.Errorf("stat %s: size %d, dir %v", name, info.Size, info.IsDir)
 		}
-		if got := contents(t, d, 1, name); string(got) != "md5-sess" {
+		if got := contents(t, d, 1, name); string(got) != tag {
 			t.Errorf("read %s: %q", name, got)
 		}
 		if err := d.Remove(1, name); err != nil {
@@ -74,12 +82,20 @@ func TestIntegrationDigestMD5SessMountWithPathInURL(t *testing.T) {
 }
 
 func TestIntegrationDigestMD5SessDirectoryWithoutTrailingSlash(t *testing.T) {
-	cfg := integrationConfig(t, lighttpdSessServer)
+	exerciseDigestDirectoryWithoutTrailingSlash(t, lighttpdSessServer, "md5-sess")
+}
+
+// exerciseDigestDirectoryWithoutTrailingSlash stats and renames a directory of
+// server named without its trailing slash, which the server redirects; tag
+// names the directory the test works in.
+func exerciseDigestDirectoryWithoutTrailingSlash(t *testing.T, server integrationServer, tag string) {
+	t.Helper()
+	cfg := integrationConfig(t, server)
 	d := &WebDAVDriver{}
 	if err := d.Mount(1, cfg); err != nil {
 		t.Fatalf("mount %s: %v", cfg["url"], err)
 	}
-	dir := "/md5-sess-slash-" + strings.ToLower(rand.Text()[:10])
+	dir := "/" + tag + "-slash-" + strings.ToLower(rand.Text()[:10])
 	if err := d.Mkdir(1, dir+"/"); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
