@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"unsafe"
 
 	"github.com/antimatter-studios/go-networkfs/pkg/api"
@@ -94,6 +95,24 @@ func setOutBytes(outData **C.char, outLen *C.size_t, data []byte) {
 	}
 	*outData = (*C.char)(C.CBytes(data))
 	*outLen = C.size_t(len(data))
+}
+
+// maxWriteLen is the longest buffer a write accepts: C.GoBytes takes its
+// length as a C int, and a write is buffered in memory whole.
+const maxWriteLen = math.MaxInt32
+
+// bytesFromC copies a caller's buffer into Go memory, after checking that its
+// length can be represented and that a nonzero length comes with a pointer.
+// It reads nothing when either check fails. A zero length is a valid, empty
+// buffer whatever the pointer holds.
+func bytesFromC(data C.ByteSlice) ([]byte, bool) {
+	if data.len == 0 {
+		return []byte{}, true
+	}
+	if data.data == nil || uint64(data.len) > maxWriteLen {
+		return nil, false
+	}
+	return C.GoBytes(unsafe.Pointer(data.data), C.int(data.len)), true
 }
 
 // --- exports ---------------------------------------------------------------
@@ -216,16 +235,22 @@ func networkfs_openfile(mountID C.int, path *C.char, out *C.ByteSlice) C.int {
 	return 0
 }
 
-// data: file contents to write
+// data: file contents to write. data.len is at most 2^31 - 1, and a nonzero
+// data.len needs a non-NULL data.data; a buffer that breaks either rule is
+// refused before it is read, and nothing is sent. A zero data.len writes an
+// empty file whatever data.data holds.
 // Returns: 0 on success
 //
 //export networkfs_writefile
 func networkfs_writefile(mountID C.int, path *C.char, data C.ByteSlice) C.int {
+	goData, ok := bytesFromC(data)
+	if !ok {
+		return 1
+	}
 	driver, ok := manager.Get(int(mountID))
 	if !ok {
 		return 1
 	}
-	goData := C.GoBytes(unsafe.Pointer(data.data), C.int(data.len))
 	if err := api.WriteFile(driver, int(mountID), stringFromC(path), goData); err != nil {
 		return 1
 	}

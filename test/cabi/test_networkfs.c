@@ -33,14 +33,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 35
-// checks is the honest total; with it, all 53 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 44
+// checks is the honest total; with it, all 62 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 35
-#define EXPECTED_CHECKS_MOUNTED 53
+#define EXPECTED_CHECKS_OFFLINE 44
+#define EXPECTED_CHECKS_MOUNTED 62
 
 static void check(int cond, const char *what) {
     checks++;
@@ -224,6 +224,63 @@ static void test_download_fidelity(void) {
     networkfs_unmount(id);
 }
 
+// A write's length is checked before any memory is read or any request is
+// sent (#65).
+//
+// ByteSlice.len is a size_t. The export narrowed it to a C int before reading,
+// so 1 << 32 became zero and an empty upload replaced the file. The buffer
+// here is one byte long and is never read: an oversized length, or a NULL
+// pointer with a nonzero length, must fail with no PUT or MOVE reaching the
+// server and the target unchanged. A valid empty write still empties a file.
+static void test_write_length_bounds(void) {
+    http_fixture fx;
+    if (fixture_start(&fx) != 0) {
+        check(0, "the HTTP fixture starts");
+        return;
+    }
+    fixture_put(&fx, "/target", "original", 8, 0, 0);
+
+    const int id = 8;
+    char cfg[256];
+    fixture_config(&fx, cfg, sizeof cfg);
+    if (mount_fixture(id, cfg) != 0) {
+        check(0, "mount the HTTP fixture");
+        return;
+    }
+    check(1, "mount the HTTP fixture");
+
+    char body[64];
+    static char one_byte = 'x';
+    ByteSlice data;
+
+    data.data = &one_byte;
+    data.len = (size_t)1 << 32;
+    check(networkfs_writefile(id, "/target", data) != 0, "a 4 GiB length over a one-byte buffer fails");
+    check(fixture_get(&fx, "/target", body, sizeof body) == 8 && memcmp(body, "original", 8) == 0 &&
+              fixture_count(&fx, &fx.puts) == 0 && fixture_count(&fx, &fx.moves) == 0,
+          "an oversized write sends nothing and leaves the target unchanged");
+
+    data.data = NULL;
+    data.len = 5;
+    check(networkfs_writefile(id, "/target", data) != 0, "a NULL buffer with a nonzero length fails");
+    check(fixture_get(&fx, "/target", body, sizeof body) == 8 && memcmp(body, "original", 8) == 0 &&
+              fixture_count(&fx, &fx.puts) == 0 && fixture_count(&fx, &fx.moves) == 0,
+          "a NULL buffer sends nothing and leaves the target unchanged");
+
+    data.data = "replaced";
+    data.len = 8;
+    check(networkfs_writefile(id, "/target", data) == 0, "an ordinary write succeeds");
+    check(fixture_get(&fx, "/target", body, sizeof body) == 8 && memcmp(body, "replaced", 8) == 0,
+          "an ordinary write replaces the target");
+
+    data.data = NULL;
+    data.len = 0;
+    check(networkfs_writefile(id, "/target", data) == 0, "an empty write succeeds");
+    check(fixture_get(&fx, "/target", body, sizeof body) == 0, "an empty write empties the target");
+
+    networkfs_unmount(id);
+}
+
 // ---------------------------------------------------------------------------
 // Mounted tests.
 //
@@ -377,6 +434,7 @@ int main(void) {
     test_operations_on_unknown_mount();
     test_free_contract_under_repetition();
     test_download_fidelity();
+    test_write_length_bounds();
 
     if (have_server()) {
         test_write_then_read_back();
