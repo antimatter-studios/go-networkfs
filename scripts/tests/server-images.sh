@@ -33,7 +33,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$ROOT/scripts/test-env.sh"
 
-EXPECTED_CHECKS=18
+EXPECTED_CHECKS=22
 checks=0
 fails=0
 
@@ -41,14 +41,14 @@ ok()   { checks=$((checks + 1)); }
 fail() { checks=$((checks + 1)); fails=$((fails + 1)); printf '  FAIL  %s\n' "$1"
          [ $# -gt 1 ] && printf '        %s\n' "$2"; }
 
-# The five image references as test-env.sh resolves them, with nothing from
+# The image references as test-env.sh resolves them, with nothing from
 # the caller's environment getting a vote.
 image_of() { # $1 = variable name
     env -i bash -c ". '$ENV_FILE'; printf '%s' \"\$$1\""
 }
 
 # --- Nothing floats. -------------------------------------------------------
-for var in SMB_IMAGE S3_IMAGE FTP_IMAGE SFTP_IMAGE DAV_IMAGE MOCK_IMAGE; do
+for var in SMB_IMAGE S3_IMAGE FTP_IMAGE SFTP_IMAGE DAV_IMAGE DAV_SABRE_IMAGE MOCK_IMAGE; do
     ref="$(image_of "$var")"
     case "$ref" in
         '')       fail "$var names an image" ;;
@@ -76,7 +76,7 @@ for image in atmoz/sftp bytemark/webdav; do
 done
 
 # --- Every image built here has something to build it from. ----------------
-for var in SMB_IMAGE SFTP_IMAGE DAV_IMAGE MOCK_IMAGE; do
+for var in SMB_IMAGE SFTP_IMAGE DAV_IMAGE DAV_SABRE_IMAGE MOCK_IMAGE; do
     ref="$(image_of "$var")"
     case "$ref" in
         go-networkfs-*) ok ;;
@@ -84,13 +84,13 @@ for var in SMB_IMAGE SFTP_IMAGE DAV_IMAGE MOCK_IMAGE; do
     esac
 done
 
-for dir in samba sftp webdav mockapi; do
+for dir in samba sftp webdav sabredav mockapi; do
     if [ -f "$ROOT/.github/docker/$dir/Dockerfile" ]; then ok
     else fail ".github/docker/$dir/Dockerfile exists to build that server from"; fi
 done
 
-# The two new ones are built, not pulled: build_image, not ensure_image.
-for server in sftp webdav; do
+# The ones added since are built, not pulled: build_image, not ensure_image.
+for server in sftp webdav sabredav; do
     body="$(awk "/^up_$server\\(\\) \\{/,/^\\}/" "$ROOT/scripts/servers.sh")"
     case "$body" in
         *build_image*) ok ;;

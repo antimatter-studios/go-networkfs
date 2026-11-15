@@ -8,7 +8,7 @@
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
 #
-#   NAME is one of: samba s3 ftp sftp webdav mockapi — or s3-native, the S3
+#   NAME is one of: samba s3 ftp sftp webdav sabredav mockapi — or s3-native, the S3
 #   server run as a plain binary with no Docker at all (see below).
 #
 # ONE SERVER HAS TWO SHAPES. stupid-simple-s3 ships as a single static binary
@@ -42,9 +42,9 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# `all` means these six: the containers, on one network, which is what the
+# `all` means these seven: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav mockapi"
+ALL_SERVERS="samba s3 ftp sftp webdav sabredav mockapi"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -293,6 +293,21 @@ up_webdav() {
     echo "  webdav   127.0.0.1:$DAV_PORT (user $DAV_USER)"
 }
 
+# The second WebDAV server, sabre/dav, built from .github/docker/sabredav with
+# the same account. Apache answers a MOVE into a missing parent 500, so the
+# driver's 409 path needed a server that answers it as RFC 4918 asks (#91);
+# the webdav integration tests run against both.
+up_sabredav() {
+    build_image "$DAV_SABRE_IMAGE" .github/docker/sabredav
+    rm_container "$DAV_SABRE_CONTAINER"
+    docker run -d --network "$TEST_NETWORK" --network-alias sabredav \
+        --name "$DAV_SABRE_CONTAINER" -p "$DAV_SABRE_PORT:8080" \
+        -e WEBDAVD_USER="$DAV_USER" -e WEBDAVD_PASS="$DAV_PASS" \
+        "$DAV_SABRE_IMAGE" >/dev/null
+    wait_for_port "$DAV_SABRE_CONTAINER" "$DAV_SABRE_PORT"
+    echo "  sabredav 127.0.0.1:$DAV_SABRE_PORT (user $DAV_USER)"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
@@ -309,6 +324,7 @@ down_s3()      { rm_container "$S3_CONTAINER"; }
 down_ftp()     { rm_container "$FTP_CONTAINER"; }
 down_sftp()    { rm_container "$SFTP_CONTAINER"; }
 down_webdav()  { rm_container "$DAV_CONTAINER"; }
+down_sabredav() { rm_container "$DAV_SABRE_CONTAINER"; }
 down_mockapi() { rm_container "$MOCK_CONTAINER"; }
 
 container_of() {
@@ -318,6 +334,7 @@ container_of() {
         ftp)     echo "$FTP_CONTAINER" ;;
         sftp)    echo "$SFTP_CONTAINER" ;;
         webdav)  echo "$DAV_CONTAINER" ;;
+        sabredav) echo "$DAV_SABRE_CONTAINER" ;;
         mockapi) echo "$MOCK_CONTAINER" ;;
         *)       die "unknown server '$1' (known: $KNOWN_SERVERS)" ;;
     esac

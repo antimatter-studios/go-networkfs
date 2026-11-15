@@ -297,13 +297,13 @@ chore --list
 |---|---|
 | `chore test:unit` | The tests that need no server and no container — runs anywhere, on anything. |
 | `chore test:native` | The same suite with the race detector and a coverage profile, still no containers. CI's `test (ubuntu-latest)` / `test (macos-latest)`. |
-| `chore test` | **Everything CI runs**: six server containers, every driver's tagged integration tests and the C ABI harnesses, all inside containers. Needs Docker and nothing else — no Go toolchain, no C compiler. |
+| `chore test` | **Everything CI runs**: seven server containers, every driver's tagged integration tests and the C ABI harnesses, all inside containers. Needs Docker and nothing else — no Go toolchain, no C compiler. |
 | `chore test:integration` | The same full run on this host's toolchain, without the runner container — the edit-run loop. |
 | `chore test:ci` | The suite against servers that are ALREADY up; what runs inside the runner container. |
 | `chore test:smb` | The SMB driver against a throwaway Samba container. |
 | `chore test:s3` | The S3 driver against a throwaway [stupid-simple-s3][sss3] — the pinned binary, so **no Docker**. |
 | `chore test:cabi` | The C ABI harnesses (C programs linking the shipped archives) against real servers. |
-| `chore servers:up`, `servers:down`, `servers:status`, `servers:env` | The test servers by hand: `chore servers:up -- samba` for one, no arguments for all six, `-- s3-native` for the daemonless S3 server. |
+| `chore servers:up`, `servers:down`, `servers:status`, `servers:env` | The test servers by hand: `chore servers:up -- samba` for one, no arguments for all seven, `-- s3-native` for the daemonless S3 server. |
 | `chore test:scripts` | The shell guards in `scripts/tests`: the contracts no Go test can reach. |
 | `chore lint`, `chore vet`, `chore vulncheck` | The gates, exactly as CI runs them. |
 | `chore siblings` | Clone or update the pinned `rust-fs-core` checkout whose scripts the tiers and checks run in place. |
@@ -422,7 +422,9 @@ an upload to a temporary resource followed by a `MOVE`, conditioned on
 the target, so a refused save leaves the target and its directory as
 they were. A server that cannot evaluate an entity tag in an `If` header
 (`golang.org/x/net/webdav` is one) refuses every conditional operation
-with a conflict; it does not perform them unconditionally. A server
+with a conflict; it does not perform them unconditionally. A save
+conditioned on a file another client removed is a conflict too, whether
+the server answers `412` or, as sabre/dav does, `404`. A server
 that ignores the header entirely cannot be told apart from one that
 honours it. WebDAV is the only driver that supports these today; every
 other driver returns `3`. In Go, the same operations are
@@ -440,7 +442,7 @@ revision it created (Apache answers both without an `ETag`), and RFC
 driver stats the save's private temporary upload for its tag before the
 `MOVE`, and afterwards asks the server, with a `HEAD` carrying
 `If-None-Match`, whether the target is at that tag. Only a `304` returns
-the tag; the revision returned is never one the target reported. When
+the tag, or a `412`, which is how sabre/dav answers a matching `HEAD`; the revision returned is never one the target reported. When
 the server does not confirm it -- it gave the destination a new tag,
 another client saved straight after, or it ignores the header -- the
 write still succeeded, `*new_revision` is `NULL` (`""` in Go), and what
@@ -641,7 +643,7 @@ the same evidence:
 | Job | Runs |
 |---|---|
 | `test (ubuntu-latest)`, `test (macos-latest)` | `chore deps:verify`, `chore vet`, `chore test:native` |
-| `integration (containerised)` | `chore test` — six servers, every tagged integration test, the C ABI harnesses, and the coverage profile that includes them |
+| `integration (containerised)` | `chore test` — seven servers, every tagged integration test, the C ABI harnesses, and the coverage profile that includes them |
 | `lint` | `chore tools`, `chore lint` (gofmt -s + the pinned golangci-lint) |
 | `govulncheck` | `chore tools`, `chore vulncheck` |
 | `c-archive builds (ubuntu-latest)`, `(macos-latest)` | `chore archives:host`, `chore tui` |

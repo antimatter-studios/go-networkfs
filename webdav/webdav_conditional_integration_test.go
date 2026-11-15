@@ -6,12 +6,16 @@
 // server. Client A observes a file's revision; client B changes the file;
 // client A then mutates the file conditioned on what it observed. The server,
 // not this driver, decides whether the condition holds, so these tests run
-// against an independent implementation: Apache httpd's mod_dav, the
-// container scripts/servers.sh starts as `webdav`.
+// against independent implementations, and every test runs against each of
+// them (integrationServers): Apache httpd's mod_dav, the container
+// scripts/servers.sh starts as `webdav`, and sabre/dav, the one it starts as
+// `sabredav`. One server is one reading of RFC 4918; where it departs from the
+// RFC, the driver's handling of the RFC's own answer goes untested (#91).
 //
-// Run with `chore test:webdav`, or by hand with the server up:
+// Run with `chore test:webdav`, or by hand with both servers up:
 //
-//	WEBDAV_URL=http://127.0.0.1:8080 WEBDAV_USER=testuser WEBDAV_PASS=testpass \
+//	WEBDAV_URL=http://127.0.0.1:8080 WEBDAV_SABRE_URL=http://127.0.0.1:8082 \
+//	  WEBDAV_USER=testuser WEBDAV_PASS=testpass \
 //	  go test -tags=webdav_integration -run Integration ./webdav/...
 
 package webdav
@@ -29,35 +33,72 @@ import (
 	"github.com/antimatter-studios/go-networkfs/pkg/api"
 )
 
-func integrationConfig(t *testing.T) map[string]string {
+// integrationServer is one independent WebDAV server the integration tests
+// run against, and what it is known to answer where servers differ. Each
+// difference is asserted where a test meets it, never skipped: a server that
+// starts behaving otherwise fails the test that relied on the difference.
+type integrationServer struct {
+	name string
+	// urlVar names the environment variable holding the server's URL. Both
+	// servers take the one account, WEBDAV_USER and WEBDAV_PASS.
+	urlVar string
+	// collectionRevisions: the server reports an entity tag for a collection
+	// and matches one in an If header. Apache does. sabre/dav's filesystem
+	// tree reports none for a collection, and its If evaluation matches an
+	// entity tag only on a file, so a directory has no revision there.
+	collectionRevisions bool
+	// missingParentConflict: a MOVE into a missing parent is answered 409
+	// Conflict, as RFC 4918 (9.9.4) asks. sabre/dav does. Apache 2.4.71
+	// answers 500 -- "Could not rename resource", ENOENT -- which is why
+	// sabre/dav is here (#91).
+	missingParentConflict bool
+}
+
+var (
+	apacheServer = integrationServer{name: "apache", urlVar: "WEBDAV_URL", collectionRevisions: true}
+	sabreServer  = integrationServer{name: "sabredav", urlVar: "WEBDAV_SABRE_URL", missingParentConflict: true}
+
+	integrationServers = []integrationServer{apacheServer, sabreServer}
+)
+
+// eachServer runs test once against every integration server, as a subtest
+// named for it.
+func eachServer(t *testing.T, test func(t *testing.T, server integrationServer)) {
+	for _, server := range integrationServers {
+		t.Run(server.name, func(t *testing.T) { test(t, server) })
+	}
+}
+
+func integrationConfig(t *testing.T, server integrationServer) map[string]string {
 	t.Helper()
 	cfg := map[string]string{
-		"url":  os.Getenv("WEBDAV_URL"),
+		"url":  os.Getenv(server.urlVar),
 		"user": os.Getenv("WEBDAV_USER"),
 		"pass": os.Getenv("WEBDAV_PASS"),
 	}
+	vars := map[string]string{"url": server.urlVar, "user": "WEBDAV_USER", "pass": "WEBDAV_PASS"}
 	var missing []string
 	for _, k := range []string{"url", "user", "pass"} {
 		if cfg[k] == "" {
-			missing = append(missing, "WEBDAV_"+strings.ToUpper(k))
+			missing = append(missing, vars[k])
 		}
 	}
 	if len(missing) > 0 {
 		// A FAILURE, NOT A SKIP: the webdav_integration tag says there is a
 		// server, so a missing address is a rig bug, and a skip would report
 		// it as a pass.
-		t.Fatalf("WebDAV integration cannot run: %s unset. Run `chore test:webdav` "+
-			"(or `chore test`), which starts the server and exports them.",
-			strings.Join(missing, ", "))
+		t.Fatalf("WebDAV integration against %s cannot run: %s unset. Run `chore test:webdav` "+
+			"(or `chore test`), which starts the servers and exports them.",
+			server.name, strings.Join(missing, ", "))
 	}
 	return cfg
 }
 
 // integrationClients mounts two independent clients and gives the test its
 // own directory on the server, removed when the test ends.
-func integrationClients(t *testing.T) (a, b *WebDAVDriver, dir string) {
+func integrationClients(t *testing.T, server integrationServer) (a, b *WebDAVDriver, dir string) {
 	t.Helper()
-	cfg := integrationConfig(t)
+	cfg := integrationConfig(t, server)
 	a, b = &WebDAVDriver{}, &WebDAVDriver{}
 	if err := a.Mount(1, cfg); err != nil {
 		t.Fatalf("mount client A: %v", err)
@@ -100,12 +141,18 @@ func contents(t *testing.T, d *WebDAVDriver, id int, path string) []byte {
 
 func observe(t *testing.T, d *WebDAVDriver, id int, path string) api.FileInfo {
 	t.Helper()
+	info := stat(t, d, id, path)
+	if info.Revision == "" {
+		t.Fatalf("stat %s reported no revision", path)
+	}
+	return info
+}
+
+func stat(t *testing.T, d *WebDAVDriver, id int, path string) api.FileInfo {
+	t.Helper()
 	info, err := d.Stat(id, path)
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
-	}
-	if info.Revision == "" {
-		t.Fatalf("stat %s reported no revision", path)
 	}
 	return info
 }
@@ -145,223 +192,252 @@ func wantConflict(t *testing.T, what string, err error) {
 // as the observation for that, so the attempt is repeated, each one starting
 // at the top of a second, until it does.
 func TestIntegrationStaleSaveWithUnchangedSizeAndTimeConflicts(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	path := dir + "/document.txt"
-	original := []byte("original contents A")
-	intervening := []byte("intervening edit  B")
-	stale := []byte("stale client's save")
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		path := dir + "/document.txt"
+		original := []byte("original contents A")
+		intervening := []byte("intervening edit  B")
+		stale := []byte("stale client's save")
 
-	for attempt := 1; ; attempt++ {
-		time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
-		save(t, a, 1, path, original)
-		observed := observe(t, a, 1, path)
-		save(t, b, 2, path, intervening)
-		after := observe(t, b, 2, path)
-		if after.Size != observed.Size || after.ModTime != observed.ModTime {
-			if attempt == 5 {
-				t.Fatalf("the intervening edit never landed in the observed second: size %d->%d, mtime %d->%d",
-					observed.Size, after.Size, observed.ModTime, after.ModTime)
+		for attempt := 1; ; attempt++ {
+			time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+			save(t, a, 1, path, original)
+			observed := observe(t, a, 1, path)
+			save(t, b, 2, path, intervening)
+			after := observe(t, b, 2, path)
+			if after.Size != observed.Size || after.ModTime != observed.ModTime {
+				if attempt == 5 {
+					t.Fatalf("the intervening edit never landed in the observed second: size %d->%d, mtime %d->%d",
+						observed.Size, after.Size, observed.ModTime, after.ModTime)
+				}
+				continue
 			}
-			continue
-		}
 
-		err := api.WriteFileIfMatch(a, 1, path, observed.Revision, stale)
-		wantConflict(t, "save over an intervening edit", err)
-		if got := contents(t, a, 1, path); !bytes.Equal(got, intervening) {
-			t.Fatalf("refused save changed the file: %q", got)
+			err := api.WriteFileIfMatch(a, 1, path, observed.Revision, stale)
+			wantConflict(t, "save over an intervening edit", err)
+			if got := contents(t, a, 1, path); !bytes.Equal(got, intervening) {
+				t.Fatalf("refused save changed the file: %q", got)
+			}
+			if names := listing(t, a, 1, dir); len(names) != 1 {
+				t.Fatalf("refused save left resources behind: %v", names)
+			}
+			return
 		}
-		if names := listing(t, a, 1, dir); len(names) != 1 {
-			t.Fatalf("refused save left resources behind: %v", names)
-		}
-		return
-	}
+	})
 }
 
 func TestIntegrationConditionalSave(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	path := dir + "/notes.txt"
-	save(t, a, 1, path, []byte("first"))
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		path := dir + "/notes.txt"
+		save(t, a, 1, path, []byte("first"))
 
-	// A save conditioned on the current revision goes through, and so does
-	// the next one conditioned on the revision after it.
-	observed := observe(t, a, 1, path)
-	if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("second")); err != nil {
-		t.Fatalf("save at the current revision: %v", err)
-	}
-	if got := contents(t, b, 2, path); string(got) != "second" {
-		t.Fatalf("client B reads %q after A's save", got)
-	}
-	observed = observe(t, a, 1, path)
-	if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("third, longer")); err != nil {
-		t.Fatalf("second save at the current revision: %v", err)
-	}
+		// A save conditioned on the current revision goes through, and so does
+		// the next one conditioned on the revision after it.
+		observed := observe(t, a, 1, path)
+		if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("second")); err != nil {
+			t.Fatalf("save at the current revision: %v", err)
+		}
+		if got := contents(t, b, 2, path); string(got) != "second" {
+			t.Fatalf("client B reads %q after A's save", got)
+		}
+		observed = observe(t, a, 1, path)
+		if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("third, longer")); err != nil {
+			t.Fatalf("second save at the current revision: %v", err)
+		}
 
-	// B edits; A's save at the revision it held is refused and B's edit stays.
-	observed = observe(t, a, 1, path)
-	save(t, b, 2, path, []byte("B's edit"))
-	wantConflict(t, "save over B's edit", api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("A's stale save")))
-	if got := contents(t, a, 1, path); string(got) != "B's edit" {
-		t.Fatalf("refused save changed the file: %q", got)
-	}
+		// B edits; A's save at the revision it held is refused and B's edit stays.
+		observed = observe(t, a, 1, path)
+		save(t, b, 2, path, []byte("B's edit"))
+		wantConflict(t, "save over B's edit", api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("A's stale save")))
+		if got := contents(t, a, 1, path); string(got) != "B's edit" {
+			t.Fatalf("refused save changed the file: %q", got)
+		}
 
-	// B removes the file; A's save at the revision it held does not bring
-	// it back.
-	observed = observe(t, a, 1, path)
-	if err := b.Remove(2, path); err != nil {
-		t.Fatal(err)
-	}
-	wantConflict(t, "save over B's removal", api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("resurrected")))
-	absent(t, a, 1, path)
-	if names := listing(t, a, 1, dir); len(names) != 0 {
-		t.Fatalf("refused saves left resources behind: %v", names)
-	}
+		// B removes the file; A's save at the revision it held does not bring
+		// it back.
+		observed = observe(t, a, 1, path)
+		if err := b.Remove(2, path); err != nil {
+			t.Fatal(err)
+		}
+		wantConflict(t, "save over B's removal", api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("resurrected")))
+		absent(t, a, 1, path)
+		if names := listing(t, a, 1, dir); len(names) != 0 {
+			t.Fatalf("refused saves left resources behind: %v", names)
+		}
+	})
 }
 
 func TestIntegrationConditionalCreate(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	path := dir + "/new.txt"
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		path := dir + "/new.txt"
 
-	// An empty revision creates a file only where none exists.
-	if err := api.WriteFileIfMatch(a, 1, path, "", []byte("created by A")); err != nil {
-		t.Fatalf("create where nothing exists: %v", err)
-	}
-	wantConflict(t, "create over A's file", api.WriteFileIfMatch(b, 2, path, "", []byte("created by B")))
-	if got := contents(t, b, 2, path); string(got) != "created by A" {
-		t.Fatalf("refused create changed the file: %q", got)
-	}
-	if names := listing(t, a, 1, dir); len(names) != 1 {
-		t.Fatalf("refused create left resources behind: %v", names)
-	}
+		// An empty revision creates a file only where none exists.
+		if err := api.WriteFileIfMatch(a, 1, path, "", []byte("created by A")); err != nil {
+			t.Fatalf("create where nothing exists: %v", err)
+		}
+		wantConflict(t, "create over A's file", api.WriteFileIfMatch(b, 2, path, "", []byte("created by B")))
+		if got := contents(t, b, 2, path); string(got) != "created by A" {
+			t.Fatalf("refused create changed the file: %q", got)
+		}
+		if names := listing(t, a, 1, dir); len(names) != 1 {
+			t.Fatalf("refused create left resources behind: %v", names)
+		}
+	})
 }
 
 func TestIntegrationConditionalRemove(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	path := dir + "/remove.txt"
-	save(t, a, 1, path, []byte("version 1"))
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		path := dir + "/remove.txt"
+		save(t, a, 1, path, []byte("version 1"))
 
-	observed := observe(t, a, 1, path)
-	save(t, b, 2, path, []byte("version 2"))
-	wantConflict(t, "remove after B's edit", a.RemoveIfMatch(1, path, observed.Revision))
-	if got := contents(t, a, 1, path); string(got) != "version 2" {
-		t.Fatalf("refused remove changed the file: %q", got)
-	}
+		observed := observe(t, a, 1, path)
+		save(t, b, 2, path, []byte("version 2"))
+		wantConflict(t, "remove after B's edit", a.RemoveIfMatch(1, path, observed.Revision))
+		if got := contents(t, a, 1, path); string(got) != "version 2" {
+			t.Fatalf("refused remove changed the file: %q", got)
+		}
 
-	observed = observe(t, a, 1, path)
-	if err := a.RemoveIfMatch(1, path, observed.Revision); err != nil {
-		t.Fatalf("remove at the current revision: %v", err)
-	}
-	absent(t, b, 2, path)
+		observed = observe(t, a, 1, path)
+		if err := a.RemoveIfMatch(1, path, observed.Revision); err != nil {
+			t.Fatalf("remove at the current revision: %v", err)
+		}
+		absent(t, b, 2, path)
 
-	// Removing what B already removed is a conflict too: the file A
-	// observed is not there to remove.
-	save(t, a, 1, path, []byte("again"))
-	observed = observe(t, a, 1, path)
-	if err := b.Remove(2, path); err != nil {
-		t.Fatal(err)
-	}
-	wantConflict(t, "remove after B's removal", a.RemoveIfMatch(1, path, observed.Revision))
+		// Removing what B already removed is a conflict too: the file A
+		// observed is not there to remove.
+		save(t, a, 1, path, []byte("again"))
+		observed = observe(t, a, 1, path)
+		if err := b.Remove(2, path); err != nil {
+			t.Fatal(err)
+		}
+		wantConflict(t, "remove after B's removal", a.RemoveIfMatch(1, path, observed.Revision))
 
-	// A directory is removed at its own revision.
-	sub := dir + "/sub"
-	if err := a.Mkdir(1, sub); err != nil {
-		t.Fatal(err)
-	}
-	observed = observe(t, a, 1, sub)
-	if err := a.RemoveIfMatch(1, sub, observed.Revision); err != nil {
-		t.Fatalf("remove a directory at its revision: %v", err)
-	}
-	absent(t, a, 1, sub)
+		// A directory is removed at its own revision, on a server that gives
+		// a directory one. On one that does not, a directory has no revision
+		// to remove it at, and a conditional remove without one is refused
+		// before anything is sent.
+		sub := dir + "/sub"
+		if err := a.Mkdir(1, sub); err != nil {
+			t.Fatal(err)
+		}
+		if !server.collectionRevisions {
+			if info := stat(t, a, 1, sub); info.Revision != "" {
+				t.Fatalf("%s reported revision %q for a directory; integrationServers says it reports none", server.name, info.Revision)
+			}
+			if err := a.RemoveIfMatch(1, sub, ""); !errors.Is(err, api.ErrRevisionRequired) {
+				t.Fatalf("remove a directory with no revision: got %v, want ErrRevisionRequired", err)
+			}
+			stat(t, a, 1, sub)
+			return
+		}
+		observed = observe(t, a, 1, sub)
+		if err := a.RemoveIfMatch(1, sub, observed.Revision); err != nil {
+			t.Fatalf("remove a directory at its revision: %v", err)
+		}
+		absent(t, a, 1, sub)
+	})
 }
 
 // Rename plus content: a client that renames a file it observed must not
 // carry off, or land on top of, contents another client wrote since.
 func TestIntegrationConditionalRename(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	from, to := dir+"/draft.txt", dir+"/final.txt"
-	save(t, a, 1, from, []byte("draft"))
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		from, to := dir+"/draft.txt", dir+"/final.txt"
+		save(t, a, 1, from, []byte("draft"))
 
-	// B edits the source; A's rename at the old revision is refused and
-	// the namespace is as B left it.
-	observed := observe(t, a, 1, from)
-	save(t, b, 2, from, []byte("draft edited by B"))
-	wantConflict(t, "rename after B's edit", a.RenameIfMatch(1, from, to, observed.Revision, ""))
-	if got := contents(t, a, 1, from); string(got) != "draft edited by B" {
-		t.Fatalf("refused rename changed the source: %q", got)
-	}
-	absent(t, a, 1, to)
+		// B edits the source; A's rename at the old revision is refused and
+		// the namespace is as B left it.
+		observed := observe(t, a, 1, from)
+		save(t, b, 2, from, []byte("draft edited by B"))
+		wantConflict(t, "rename after B's edit", a.RenameIfMatch(1, from, to, observed.Revision, ""))
+		if got := contents(t, a, 1, from); string(got) != "draft edited by B" {
+			t.Fatalf("refused rename changed the source: %q", got)
+		}
+		absent(t, a, 1, to)
 
-	// B creates the destination; a rename that expects it free is refused.
-	observed = observe(t, a, 1, from)
-	save(t, b, 2, to, []byte("B's final"))
-	wantConflict(t, "rename onto B's new file", a.RenameIfMatch(1, from, to, observed.Revision, ""))
-	if got := contents(t, a, 1, to); string(got) != "B's final" {
-		t.Fatalf("refused rename replaced the destination: %q", got)
-	}
-	if got := contents(t, a, 1, from); string(got) != "draft edited by B" {
-		t.Fatalf("refused rename moved the source: %q", got)
-	}
+		// B creates the destination; a rename that expects it free is refused.
+		observed = observe(t, a, 1, from)
+		save(t, b, 2, to, []byte("B's final"))
+		wantConflict(t, "rename onto B's new file", a.RenameIfMatch(1, from, to, observed.Revision, ""))
+		if got := contents(t, a, 1, to); string(got) != "B's final" {
+			t.Fatalf("refused rename replaced the destination: %q", got)
+		}
+		if got := contents(t, a, 1, from); string(got) != "draft edited by B" {
+			t.Fatalf("refused rename moved the source: %q", got)
+		}
 
-	// A observes both; B edits the destination; A's replacing rename is
-	// refused.
-	observedFrom, observedTo := observe(t, a, 1, from), observe(t, a, 1, to)
-	save(t, b, 2, to, []byte("B's final, revised"))
-	wantConflict(t, "rename over B's edited destination", a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision))
-	if got := contents(t, a, 1, to); string(got) != "B's final, revised" {
-		t.Fatalf("refused rename replaced the destination: %q", got)
-	}
+		// A observes both; B edits the destination; A's replacing rename is
+		// refused.
+		observedFrom, observedTo := observe(t, a, 1, from), observe(t, a, 1, to)
+		save(t, b, 2, to, []byte("B's final, revised"))
+		wantConflict(t, "rename over B's edited destination", a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision))
+		if got := contents(t, a, 1, to); string(got) != "B's final, revised" {
+			t.Fatalf("refused rename replaced the destination: %q", got)
+		}
 
-	// At current revisions the replacing rename goes through.
-	observedFrom, observedTo = observe(t, a, 1, from), observe(t, a, 1, to)
-	if err := a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision); err != nil {
-		t.Fatalf("replacing rename at current revisions: %v", err)
-	}
-	absent(t, b, 2, from)
-	if got := contents(t, b, 2, to); string(got) != "draft edited by B" {
-		t.Fatalf("rename landed %q", got)
-	}
+		// At current revisions the replacing rename goes through.
+		observedFrom, observedTo = observe(t, a, 1, from), observe(t, a, 1, to)
+		if err := a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision); err != nil {
+			t.Fatalf("replacing rename at current revisions: %v", err)
+		}
+		absent(t, b, 2, from)
+		if got := contents(t, b, 2, to); string(got) != "draft edited by B" {
+			t.Fatalf("rename landed %q", got)
+		}
 
-	// And a rename to a free path at the current revision goes through.
-	observed = observe(t, a, 1, to)
-	moved := dir + "/archived.txt"
-	if err := a.RenameIfMatch(1, to, moved, observed.Revision, ""); err != nil {
-		t.Fatalf("rename to a free path: %v", err)
-	}
-	absent(t, a, 1, to)
-	if got := contents(t, b, 2, moved); string(got) != "draft edited by B" {
-		t.Fatalf("rename landed %q", got)
-	}
+		// And a rename to a free path at the current revision goes through.
+		observed = observe(t, a, 1, to)
+		moved := dir + "/archived.txt"
+		if err := a.RenameIfMatch(1, to, moved, observed.Revision, ""); err != nil {
+			t.Fatalf("rename to a free path: %v", err)
+		}
+		absent(t, a, 1, to)
+		if got := contents(t, b, 2, moved); string(got) != "draft edited by B" {
+			t.Fatalf("rename landed %q", got)
+		}
+	})
 }
 
 // A conditional rename into a directory another client removed is refused and
-// does not bring the directory back (#85). Apache 2.4 answers this MOVE 500,
-// not the 409 Conflict RFC 4918 asks for, so it does not reach the 409 path
-// gowebdav would answer by creating the parent and retrying; the unit test
-// TestConditionalMoveIntoAMissingParentCreatesNothing holds that path. This
-// one holds the outcome against a real server whatever status it chooses.
+// does not bring the directory back (#85). sabre/dav answers this MOVE 409
+// Conflict, as RFC 4918 asks, which is the answer gowebdav acts on by creating
+// the parent and retrying; the driver reports it as ErrNotFound and sends
+// nothing after it. Apache 2.4 answers 500, so against Apache this holds the
+// outcome whatever status the server chooses, and only sabre/dav reaches the
+// 409 path (#91).
 func TestIntegrationConditionalRenameIntoARemovedDirectory(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	from, target := dir+"/draft.txt", dir+"/target"
-	save(t, a, 1, from, []byte("draft"))
-	if err := a.Mkdir(1, target); err != nil {
-		t.Fatal(err)
-	}
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		from, target := dir+"/draft.txt", dir+"/target"
+		save(t, a, 1, from, []byte("draft"))
+		if err := a.Mkdir(1, target); err != nil {
+			t.Fatal(err)
+		}
 
-	observed := observe(t, a, 1, from)
-	observe(t, a, 1, target)
-	if err := b.Remove(2, target); err != nil {
-		t.Fatal(err)
-	}
-	err := a.RenameIfMatch(1, from, target+"/final.txt", observed.Revision, "")
-	if err == nil {
-		t.Fatal("rename into the directory B removed succeeded")
-	}
-	absent(t, b, 2, target)
-	if got := contents(t, b, 2, from); string(got) != "draft" {
-		t.Fatalf("refused rename changed the source: %q", got)
-	}
-	if names := listing(t, b, 2, dir); len(names) != 1 {
-		t.Fatalf("refused rename changed the namespace: %v", names)
-	}
+		observed := observe(t, a, 1, from)
+		stat(t, a, 1, target)
+		if err := b.Remove(2, target); err != nil {
+			t.Fatal(err)
+		}
+		err := a.RenameIfMatch(1, from, target+"/final.txt", observed.Revision, "")
+		switch {
+		case err == nil:
+			t.Fatal("rename into the directory B removed succeeded")
+		case server.missingParentConflict && !errors.Is(err, api.ErrNotFound):
+			t.Fatalf("rename into the directory B removed: got %v, want ErrNotFound from the 409", err)
+		}
+		absent(t, b, 2, target)
+		if got := contents(t, b, 2, from); string(got) != "draft" {
+			t.Fatalf("refused rename changed the source: %q", got)
+		}
+		if names := listing(t, b, 2, dir); len(names) != 1 {
+			t.Fatalf("refused rename changed the namespace: %v", names)
+		}
+	})
 }
 
 // A conditional save returns the revision of the state it wrote (#84), so a
@@ -372,52 +448,54 @@ func TestIntegrationConditionalRenameIntoARemovedDirectory(t *testing.T) {
 // refused, although a stat by A at that moment would have handed it a
 // revision its save would have gone through at.
 func TestIntegrationConditionalSaveReturnsItsRevision(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	path := dir + "/revisions.txt"
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		path := dir + "/revisions.txt"
 
-	created, err := api.WriteFileIfMatchRevision(a, 1, path, "", []byte("created by A"))
-	if err != nil {
-		t.Fatalf("create where nothing exists: %v", err)
-	}
-	if created == "" {
-		t.Fatal("a conditional create returned no revision")
-	}
+		created, err := api.WriteFileIfMatchRevision(a, 1, path, "", []byte("created by A"))
+		if err != nil {
+			t.Fatalf("create where nothing exists: %v", err)
+		}
+		if created == "" {
+			t.Fatal("a conditional create returned no revision")
+		}
 
-	// The returned revision is the file's: the server accepts a save at it.
-	saved, err := api.WriteFileIfMatchRevision(a, 1, path, created, []byte("saved by A"))
-	if err != nil {
-		t.Fatalf("save at the revision the create returned: %v", err)
-	}
-	if saved == "" {
-		t.Fatal("a conditional save returned no revision")
-	}
-	resaved, err := api.WriteFileIfMatchRevision(a, 1, path, saved, []byte("saved by A again"))
-	if err != nil {
-		t.Fatalf("save at the revision the previous save returned: %v", err)
-	}
-	if resaved == "" {
-		t.Fatal("a second conditional save returned no revision")
-	}
+		// The returned revision is the file's: the server accepts a save at it.
+		saved, err := api.WriteFileIfMatchRevision(a, 1, path, created, []byte("saved by A"))
+		if err != nil {
+			t.Fatalf("save at the revision the create returned: %v", err)
+		}
+		if saved == "" {
+			t.Fatal("a conditional save returned no revision")
+		}
+		resaved, err := api.WriteFileIfMatchRevision(a, 1, path, saved, []byte("saved by A again"))
+		if err != nil {
+			t.Fatalf("save at the revision the previous save returned: %v", err)
+		}
+		if resaved == "" {
+			t.Fatal("a second conditional save returned no revision")
+		}
 
-	// B saves. What a stat would now report is B's revision, not A's.
-	save(t, b, 2, path, []byte("B's edit"))
-	if observed := observe(t, a, 1, path); observed.Revision == resaved {
-		t.Fatalf("B's save left the revision at %q, the one A's save returned", resaved)
-	}
+		// B saves. What a stat would now report is B's revision, not A's.
+		save(t, b, 2, path, []byte("B's edit"))
+		if observed := observe(t, a, 1, path); observed.Revision == resaved {
+			t.Fatalf("B's save left the revision at %q, the one A's save returned", resaved)
+		}
 
-	// A's next save, at the revision its own save returned, is refused, and
-	// B's edit stays.
-	stale, err := api.WriteFileIfMatchRevision(a, 1, path, resaved, []byte("A's stale save"))
-	wantConflict(t, "save at the returned revision after B's edit", err)
-	if stale != "" {
-		t.Fatalf("a refused save returned revision %q", stale)
-	}
-	if got := contents(t, a, 1, path); string(got) != "B's edit" {
-		t.Fatalf("refused save changed the file: %q", got)
-	}
-	if names := listing(t, a, 1, dir); len(names) != 1 {
-		t.Fatalf("saves left resources behind: %v", names)
-	}
+		// A's next save, at the revision its own save returned, is refused, and
+		// B's edit stays.
+		stale, err := api.WriteFileIfMatchRevision(a, 1, path, resaved, []byte("A's stale save"))
+		wantConflict(t, "save at the returned revision after B's edit", err)
+		if stale != "" {
+			t.Fatalf("a refused save returned revision %q", stale)
+		}
+		if got := contents(t, a, 1, path); string(got) != "B's edit" {
+			t.Fatalf("refused save changed the file: %q", got)
+		}
+		if names := listing(t, a, 1, dir); len(names) != 1 {
+			t.Fatalf("saves left resources behind: %v", names)
+		}
+	})
 }
 
 // A conditional save into a directory another client removed is refused and
@@ -427,28 +505,30 @@ func TestIntegrationConditionalSaveReturnsItsRevision(t *testing.T) {
 // conditional MOVE is sent. A save at the revision A observed and a save that
 // only creates are both covered.
 func TestIntegrationConditionalSaveIntoARemovedDirectory(t *testing.T) {
-	a, b, dir := integrationClients(t)
-	sub := dir + "/sub"
-	path := sub + "/notes.txt"
-	if err := a.Mkdir(1, sub); err != nil {
-		t.Fatal(err)
-	}
-	save(t, a, 1, path, []byte("saved by A"))
-	observed := observe(t, a, 1, path)
-	if err := b.Remove(2, sub); err != nil {
-		t.Fatal(err)
-	}
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		sub := dir + "/sub"
+		path := sub + "/notes.txt"
+		if err := a.Mkdir(1, sub); err != nil {
+			t.Fatal(err)
+		}
+		save(t, a, 1, path, []byte("saved by A"))
+		observed := observe(t, a, 1, path)
+		if err := b.Remove(2, sub); err != nil {
+			t.Fatal(err)
+		}
 
-	if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("A's stale save")); err == nil {
-		t.Fatal("save at the observed revision into the directory B removed succeeded")
-	}
-	absent(t, b, 2, sub)
+		if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("A's stale save")); err == nil {
+			t.Fatal("save at the observed revision into the directory B removed succeeded")
+		}
+		absent(t, b, 2, sub)
 
-	if err := api.WriteFileIfMatch(a, 1, sub+"/new.txt", "", []byte("A's new file")); err == nil {
-		t.Fatal("create-only save into the directory B removed succeeded")
-	}
-	absent(t, b, 2, sub)
-	if names := listing(t, b, 2, dir); len(names) != 0 {
-		t.Fatalf("refused saves changed the namespace: %v", names)
-	}
+		if err := api.WriteFileIfMatch(a, 1, sub+"/new.txt", "", []byte("A's new file")); err == nil {
+			t.Fatal("create-only save into the directory B removed succeeded")
+		}
+		absent(t, b, 2, sub)
+		if names := listing(t, b, 2, dir); len(names) != 0 {
+			t.Fatalf("refused saves changed the namespace: %v", names)
+		}
+	})
 }

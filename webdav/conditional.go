@@ -175,6 +175,9 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 	if recorder.status == http.StatusConflict {
 		return parentConflict(fullNew)
 	}
+	if recorder.status == http.StatusNotFound && oldRevision == "" && newRevision != "" && d.exists(fullOld) {
+		return fmt.Errorf("%w (HTTP 404: %s, which the condition names, does not exist)", api.ErrPreconditionFailed, fullNew)
+	}
 	return conditionResult(err, recorder, oldRevision != "")
 }
 
@@ -195,6 +198,21 @@ func (d *WebDAVDriver) uploadIntoExistingDirectory(fullTemporary string, data []
 			fullTemporary, api.ErrNotFound, recorder.status)
 	}
 	return err
+}
+
+// A 404 TO A SAVE'S MOVE names the target when the upload is still there.
+// RFC 4918 (10.4) has a condition on a resource that does not exist evaluate
+// false, and the server answer 412. sabre/dav 4.7 looks the resource up to
+// read its entity tag and answers the failed lookup 404 instead (#91). A
+// save's MOVE has two resources a 404 can be about: its own temporary upload,
+// the request URI, and the target its condition names. The upload's name is
+// private to this save, so if it is still there the 404 was about the target:
+// another client removed the file this save was conditioned on.
+
+// exists reports whether the server answers a PROPFIND of full.
+func (d *WebDAVDriver) exists(full string) bool {
+	_, err := d.client.Stat(full)
+	return err == nil
 }
 
 // CreateFileIfMatch returns a writer that uploads on Close, replacing the file
@@ -238,7 +256,11 @@ func (d *WebDAVDriver) CreateFileIfMatch(mountID int, path, revision string) (io
 //  2. After the MOVE, a HEAD of the target with If-None-Match: <that tag> asks
 //     the server whether the target is now at it. 304 is yes (RFC 9110 section
 //     13.1.2, weak comparison), and the tag is the revision of what this save
-//     wrote. Anything else -- a server that gave the destination a new tag,
+//     wrote. So is 412: the RFC asks for 304 to a GET or HEAD whose
+//     If-None-Match matches and 412 to any other method, and sabre/dav 4.7
+//     answers a HEAD 412 (#91). Either says the condition evaluated false --
+//     the target is at the tag -- and a server answers neither for a tag that
+//     does not match. Anything else -- a server that gave the destination a new tag,
 //     another client's save landing straight after the MOVE, a server that
 //     ignores the header -- is "not confirmed", and the save returns no
 //     revision. The answer is only ever the tag this save uploaded, or
@@ -272,7 +294,7 @@ func (d *WebDAVDriver) confirmRevision(full, candidate string) string {
 	// A cache between here and the server must not answer for it.
 	header.Set("Cache-Control", "no-cache")
 	status, err := d.head(full, header)
-	if err != nil || status != http.StatusNotModified {
+	if err != nil || (status != http.StatusNotModified && status != http.StatusPreconditionFailed) {
 		return ""
 	}
 	return candidate
