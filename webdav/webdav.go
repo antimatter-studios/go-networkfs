@@ -129,7 +129,8 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	d.pass = pass
 	d.pathPrefix = pathPrefix
 
-	d.auth = newAuthorizer(user, pass)
+	sessions := &digestSessions{}
+	d.auth = newAuthorizer(user, pass, sessions)
 	d.client = gowebdav.NewAuthClient(baseURL, d.auth)
 
 	// Wire a CountingTransport into gowebdav's underlying http.Client so
@@ -150,7 +151,7 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	// slash, and only a transport below it can sign it again for the URL it
 	// goes out with (#95).
 	d.stats = &api.MountStats{}
-	d.transport = &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass}, d.stats)}
+	d.transport = &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass, sessions: sessions}, d.stats)}
 	d.client.SetTransport(d.transport)
 
 	// Optional: validate with Connect (may no-op depending on server).

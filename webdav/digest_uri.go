@@ -13,9 +13,15 @@ package webdav
 // percent-encoding differs the same way, root path or not.
 //
 // So the transport, at the wire, signs a Digest authorization again for the
-// request URI it is about to send whenever the two differ. The nonce, client
-// nonce and nonce count stay as gowebdav chose them; only uri and response
-// change. Basic credentials, other algorithms and other qualities of
+// request URI it is about to send whenever the two differ. The driver's own
+// authenticator signs for the request URI already (#107), so what still
+// differs is a request re-sent to another URI: a collection's
+// slash-terminated URL, after the server's redirect (#95). An answer of the
+// mount's latest Digest session is answered afresh under that session, with
+// its next nonce count (digestSessions). Any other is signed again with the
+// nonce, client nonce and nonce count it carries; only uri and response
+// change, and for MD5-sess the session key is computed from that nonce and
+// client nonce. Basic credentials, other algorithms and other qualities of
 // protection go out as they came.
 
 import (
@@ -33,6 +39,9 @@ type digestRequestURI struct {
 	base http.RoundTripper
 	// password computes the response afresh.
 	password string
+	// sessions answers a request afresh under the Digest session it was
+	// answered with, when that session is the mount's latest; nil means none.
+	sessions *digestSessions
 }
 
 func (d *digestRequestURI) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -40,8 +49,15 @@ func (d *digestRequestURI) RoundTrip(request *http.Request) (*http.Response, err
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	authorization := request.Header.Get("Authorization")
-	if signed := signDigestFor(authorization, request.Method, request.URL.RequestURI(), d.password); signed != authorization {
+	authorization, uri := request.Header.Get("Authorization"), request.URL.RequestURI()
+	signed, ok := authorization, false
+	if d.sessions != nil {
+		signed, ok = d.sessions.resign(authorization, request.Method, uri)
+	}
+	if !ok {
+		signed = signDigestFor(authorization, request.Method, uri, d.password)
+	}
+	if signed != authorization {
 		// A RoundTripper must not change the request it was given.
 		request = request.Clone(request.Context())
 		request.Header.Set("Authorization", signed)
@@ -67,10 +83,19 @@ func signDigestFor(authorization, method, uri, password string) string {
 	if value["uri"] == uri {
 		return authorization
 	}
-	if a := value["algorithm"]; a != "" && !strings.EqualFold(a, "MD5") {
+	ha1 := digestMD5(value["username"] + ":" + value["realm"] + ":" + password)
+	switch a := value["algorithm"]; {
+	case a == "" || strings.EqualFold(a, "MD5"):
+	case strings.EqualFold(a, "MD5-sess"):
+		// The session key, from the nonce and client nonce the answer
+		// already carries (RFC 7616 3.4.2).
+		if value["cnonce"] == "" {
+			return authorization
+		}
+		ha1 = digestMD5(ha1 + ":" + value["nonce"] + ":" + value["cnonce"])
+	default:
 		return authorization
 	}
-	ha1 := digestMD5(value["username"] + ":" + value["realm"] + ":" + password)
 	ha2 := digestMD5(method + ":" + uri)
 	var response string
 	switch value["qop"] {
