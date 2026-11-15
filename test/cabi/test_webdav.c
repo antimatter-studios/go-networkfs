@@ -30,13 +30,13 @@ static int checks = 0;
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
 // there. Without CABI_CONFIG the mounted round trip does not run and 45
-// checks is the honest total; with it, all 56 must.
+// checks is the honest total; with it, all 64 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
 #define EXPECTED_CHECKS_OFFLINE 45
-#define EXPECTED_CHECKS_MOUNTED 56
+#define EXPECTED_CHECKS_MOUNTED 64
 
 static void check(int cond, const char *what) {
     checks++;
@@ -334,6 +334,26 @@ static void test_mounted_round_trip(void) {
     if (listing) webdav_free(listing);
 
     check(webdav_remove(id, (char *)path) == 0, "remove succeeds");
+
+    // mkdir over a regular file fails and leaves the file alone; mkdir of a
+    // directory that already exists succeeds (#67).
+    const char *collision = "/cabi-webdav-collision";
+    data.data = "keep me";
+    data.len = 7;
+    check(webdav_writefile(id, (char *)collision, data) == 0, "writefile of the collision file succeeds");
+    check(webdav_mkdir(id, (char *)collision) != 0, "mkdir over a regular file fails");
+    out.data = NULL;
+    out.len = 0;
+    check(webdav_openfile(id, (char *)collision, &out) == 0, "the collision file still reads");
+    check(out.len == 7 && out.data != NULL && memcmp(out.data, "keep me", 7) == 0,
+          "mkdir left the collision file's contents alone");
+    if (out.data) webdav_free(out.data);
+    check(webdav_remove(id, (char *)collision) == 0, "remove of the collision file succeeds");
+
+    check(webdav_mkdir(id, "/cabi-webdav-dir") == 0, "mkdir of a new directory succeeds");
+    check(webdav_mkdir(id, "/cabi-webdav-dir") == 0, "mkdir of an existing directory succeeds");
+    check(webdav_remove(id, "/cabi-webdav-dir") == 0, "remove of the directory succeeds");
+
     check(webdav_unmount(id) == 0, "unmount succeeds");
 }
 

@@ -334,7 +334,22 @@ func (d *WebDAVDriver) Mkdir(mountID int, path string) (err error) {
 	if !d.connected || d.client == nil {
 		return api.ErrNotConnected
 	}
-	return d.client.Mkdir(d.fullPath(path), 0755)
+	full := d.fullPath(path)
+	if err := d.client.Mkdir(full, 0755); err != nil {
+		return err
+	}
+	// gowebdav reports MKCOL's 405 as success. A server answers 405 for any
+	// resource already at the path, a regular file included, so success is
+	// confirmed by a directory actually being there. One that already
+	// existed counts: the caller asked for a directory, and one is there.
+	info, err := d.client.Stat(full)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return &api.DriverError{Code: api.ErrExists.Code, Message: "mkdir " + path + ": a file that is not a directory exists"}
+	}
+	return nil
 }
 
 // Remove deletes a file or directory. gowebdav's Remove handles both,
