@@ -72,8 +72,10 @@ jobs:
   changes:
     name: changes (does this need the full pipeline?)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.c.outputs.code }}
+      runners: ${{ steps.runners.outputs.runners || '{}' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,12 +118,52 @@ jobs:
           fi
           echo "code=$code ($EVENT${range:+ $range})"
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Pick runners
+        id: runners
+        env:
+          ORG: ${{ github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+          GH_ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CODE: ${{ steps.c.outputs.code }}
+        run: |
+          set -euo pipefail
+          runners='{}'
+          if [ "$CODE" = true ]; then
+            ours=true
+            for who in "$ACTOR" "$GH_ACTOR" "$SENDER" "$AUTHOR"; do
+              [ -z "$who" ] || [ "$who" = christhomas ] || ours=false
+            done
+            runner=ubuntu-24.04
+            if $ours; then
+              runner=$(curl -fsS --max-time 10 --get https://runner-gate.antimatter-studios.com/pick \
+                --data-urlencode "org=$ORG" \
+                --data-urlencode prefer=antimatter-vps-linux-x64 \
+                --data-urlencode fallback=ubuntu-24.04 \
+                --data-urlencode "actor=$ACTOR" \
+                --data-urlencode "author=$AUTHOR" \
+                --data-urlencode "run=$RUN_ID" \
+                --data-urlencode "attempt=$RUN_ATTEMPT" \
+                --data-urlencode job=integration) || runner=ubuntu-24.04
+              case "$runner" in
+                antimatter-vps-linux-x64|ubuntu-24.04) ;;
+                *) runner=ubuntu-24.04 ;;
+              esac
+            fi
+            runners=$(jq -cn --arg runner "$runner" '{integration: $runner}')
+          fi
+          echo "$runners" | jq . | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "runners=$runners" >> "$GITHUB_OUTPUT"
 
   test:
     name: test (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -176,7 +218,8 @@ jobs:
     name: integration (containerised)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(needs.changes.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -211,6 +254,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -239,6 +283,7 @@ jobs:
   vulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -270,6 +315,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -307,6 +353,7 @@ jobs:
     if: always()
     needs: [changes, test, integration, lint, vulncheck, build-archives]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: every gating job must have concluded success
         env:
