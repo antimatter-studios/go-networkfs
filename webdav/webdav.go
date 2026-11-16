@@ -132,8 +132,12 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	// client's *http.Client.Transport — passing nil as the base lets
 	// CountingTransport fall back to http.DefaultTransport, matching the
 	// gowebdav default (it never sets one explicitly).
+	//
+	// collectionRedirects sits above the counters, so a request it re-sends
+	// to a collection's slash-terminated URL is counted as the second
+	// request it is.
 	d.stats = &api.MountStats{}
-	d.transport = api.NewCountingTransport(nil, d.stats)
+	d.transport = &collectionRedirects{base: api.NewCountingTransport(nil, d.stats)}
 	d.client.SetTransport(d.transport)
 
 	// Optional: validate with Connect (may no-op depending on server).
