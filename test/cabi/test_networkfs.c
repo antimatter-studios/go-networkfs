@@ -34,14 +34,14 @@ static int checks = 0;
 //
 // TWO NUMBERS, because a skip is right on a laptop with no servers up and
 // wrong in the job whose whole reason for existing is that the servers are
-// there. Without CABI_CONFIG the mounted round trip does not run and 47
-// checks is the honest total; with it, all 76 must.
+// there. Without CABI_CONFIG the mounted round trip does not run and 49
+// checks is the honest total; with it, all 81 must.
 //
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 47
-#define EXPECTED_CHECKS_MOUNTED 76
+#define EXPECTED_CHECKS_OFFLINE 49
+#define EXPECTED_CHECKS_MOUNTED 81
 
 static void check(int cond, const char *what) {
     checks++;
@@ -165,6 +165,11 @@ static void test_operations_on_unknown_mount(void) {
     check(networkfs_writefile_if(4242, "/p", data, "\"r\"") == 1, "writefile_if on an unknown mount returns 1");
     check(networkfs_remove_if(4242, "/p", "\"r\"") == 1, "remove_if on an unknown mount returns 1");
     check(networkfs_rename_if(4242, "/a", "/b", "\"r\"", NULL) == 1, "rename_if on an unknown mount returns 1");
+    char *new_revision = (char *)"sentinel";
+    check(networkfs_writefile_if_revision(4242, "/p", data, "\"r\"", &new_revision) == 1 && new_revision == NULL,
+          "writefile_if_revision on an unknown mount returns 1 and no revision");
+    check(networkfs_writefile_if_revision(4242, "/p", data, "\"r\"", NULL) == 1,
+          "writefile_if_revision takes a NULL revision out-pointer");
 
     check(networkfs_unmount(4242) != 0, "unmount of an unknown mount fails");
 }
@@ -490,6 +495,21 @@ static void test_conditional_webdav(void) {
     }
     if (info) { networkfs_free(info); info = NULL; }
     check(networkfs_remove_if(a, (char *)path, rev) == 0, "networkfs_remove_if at the current revision returns 0");
+
+    // networkfs_writefile_if_revision hands back the revision it created
+    // (#84); a write at it after client B's save returns 2 and no revision.
+    const char *carried = "/cabi-networkfs-carried.txt";
+    char *created = NULL, *refused = (char *)"sentinel";
+    data.data = "fresh";
+    check(networkfs_writefile_if_revision(a, (char *)carried, data, NULL, &created) == 0 && created && created[0],
+          "networkfs_writefile_if_revision returns the revision it created");
+    data.data = "other";
+    check(networkfs_writefile(b, (char *)carried, data) == 0, "client B overwrites the carried document");
+    data.data = "stale";
+    check(networkfs_writefile_if_revision(a, (char *)carried, data, created, &refused) == 2 && refused == NULL,
+          "a write at the returned revision after client B's save returns 2 and no revision");
+    if (created) networkfs_free(created);
+    networkfs_remove(a, (char *)carried);
 
     networkfs_unmount(a);
     networkfs_unmount(b);

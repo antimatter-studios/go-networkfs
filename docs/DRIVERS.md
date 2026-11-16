@@ -83,8 +83,12 @@ signatures. Practical notes beyond the types:
   driver that cannot do better does not implement the interface, so the
   dispatcher refuses the operation with `ErrConditionNotSupported`
   instead. A refused precondition returns `api.ErrPreconditionFailed`
-  (wrapped is fine; callers use `errors.Is`) and changes nothing. WebDAV
-  is the only driver that implements it today.
+  (wrapped is fine; callers use `errors.Is`) and changes nothing. A
+  driver that can report the revision a conditional write created returns
+  an `api.RevisionWriter` from `CreateFileIfMatch`; it reports that
+  revision only when nothing another client did can have produced it (a
+  `Stat` after the write can), and `""` otherwise. WebDAV is the only
+  driver that implements it today.
 
 ## Security defaults
 

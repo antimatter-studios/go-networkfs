@@ -284,7 +284,13 @@ type webdavWriter struct {
 	// the target. CreateFile's replaces whatever is there; CreateFileIfMatch's
 	// carries the caller's precondition.
 	commit func(fullTemporary string) error
+	// revision is what a conditional save's commit established as the
+	// revision of the state it wrote, or "" (see CreateFileIfMatch).
+	revision string
 }
+
+// Revision implements api.RevisionWriter.
+func (w *webdavWriter) Revision() string { return w.revision }
 
 func (w *webdavWriter) Write(p []byte) (n int, err error) {
 	if w.closed {

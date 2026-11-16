@@ -191,9 +191,104 @@ func (d *WebDAVDriver) CreateFileIfMatch(mountID int, path, revision string) (io
 	}
 	w := &webdavWriter{driver: d, path: path}
 	w.commit = func(fullTemporary string) error {
-		return d.move(fullTemporary, d.fullPath(path), "", revision)
+		uploaded := d.uploadRevision(fullTemporary)
+		if err := d.move(fullTemporary, d.fullPath(path), "", revision); err != nil {
+			return err
+		}
+		w.revision = d.confirmRevision(d.fullPath(path), uploaded)
+		return nil
 	}
 	return w, nil
+}
+
+// THE REVISION A SAVE RETURNS (#84). Neither the PUT nor the MOVE of a save
+// reports the revision it created: Apache mod_dav answers both without an
+// ETag, and RFC 4918 (section 15.6) makes a MOVE destination's getetag depend
+// on its own final state, not on the source's. A Stat of the target after the
+// MOVE can report another client's save that landed in between. So the
+// revision is established in two steps, neither of which can see anyone
+// else's write:
+//
+//  1. Before the MOVE, the temporary upload is stat'ed for its entity tag.
+//     Its name is random and private to this save, so no other client has
+//     written it.
+//  2. After the MOVE, a HEAD of the target with If-None-Match: <that tag> asks
+//     the server whether the target is now at it. 304 is yes (RFC 9110 section
+//     13.1.2, weak comparison), and the tag is the revision of what this save
+//     wrote. Anything else -- a server that gave the destination a new tag,
+//     another client's save landing straight after the MOVE, a server that
+//     ignores the header -- is "not confirmed", and the save returns no
+//     revision. The answer is only ever the tag this save uploaded, or
+//     nothing; never a value the target reported, which could be someone
+//     else's.
+//
+// A failure of either step leaves the save itself successful, with no
+// revision.
+
+// uploadRevision is the entity tag of a save's temporary upload, or "".
+func (d *WebDAVDriver) uploadRevision(fullTemporary string) string {
+	info, err := d.client.Stat(fullTemporary)
+	if err != nil {
+		return ""
+	}
+	revision := revisionOf(info)
+	if validRevision(revision) != nil {
+		return ""
+	}
+	return revision
+}
+
+// confirmRevision returns candidate if the server confirms the resource at
+// full is at it, and "" otherwise.
+func (d *WebDAVDriver) confirmRevision(full, candidate string) string {
+	if candidate == "" {
+		return ""
+	}
+	header := http.Header{}
+	header.Set("If-None-Match", candidate)
+	// A cache between here and the server must not answer for it.
+	header.Set("Cache-Control", "no-cache")
+	status, err := d.head(full, header)
+	if err != nil || status != http.StatusNotModified {
+		return ""
+	}
+	return candidate
+}
+
+// head sends a HEAD for the resource at full with header, authorised the way
+// gowebdav authorises its own requests, and returns the response status. A
+// redirect is returned, not followed. gowebdav has no HEAD of its own.
+func (d *WebDAVDriver) head(full string, header http.Header) (int, error) {
+	client := &http.Client{
+		Transport:     d.transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	auth, _ := d.auth.NewAuthenticator(nil)
+	defer auth.Close()
+	for {
+		request, err := http.NewRequest(http.MethodHead, d.resourceURL(full), nil)
+		if err != nil {
+			return 0, err
+		}
+		for key, values := range header {
+			request.Header[key] = values
+		}
+		if err := auth.Authorize(client, request, full); err != nil {
+			return 0, err
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return 0, err
+		}
+		_ = response.Body.Close()
+		redo, err := auth.Verify(client, response, full)
+		if err != nil {
+			return 0, err
+		}
+		if !redo {
+			return response.StatusCode, nil
+		}
+	}
 }
 
 // RemoveIfMatch deletes path only while it is at revision. A directory is
