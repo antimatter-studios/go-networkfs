@@ -443,6 +443,16 @@ tasks:
     cmds:
       - 'scripts/with-servers.sh s3-native -- bash ../rust-fs-core/scripts/tier.sh test:s3 s3 20 2000 -- go test -race -count=1 -tags=s3_integration -run Integration ./s3/...'
 
+  test:webdav:
+    desc: WebDAV driver integration tests against a throwaway Apache mod_dav container
+    # The conditional mutations (#70) are only meaningful against a server
+    # that evaluates the precondition, and the in-process
+    # golang.org/x/net/webdav fixture the unit tests use cannot. These tests
+    # sit behind the webdav_integration build tag for that reason, and this
+    # task brings the Apache container up for them, as test:smb does Samba.
+    cmds:
+      - 'scripts/with-servers.sh webdav -- bash ../rust-fs-core/scripts/tier.sh test:webdav webdav 20 2000 -- go test -race -count=1 -tags=webdav_integration -run Integration ./webdav/...'
+
   test:cabi:
     desc: "The C ABI, exercised from C against real servers — the only caller that can reach three of its entry points"
     # A Go test file may not import "C", so it cannot name a ByteSlice or a

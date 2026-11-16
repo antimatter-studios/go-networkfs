@@ -3,7 +3,8 @@
 // Builds as: go build -buildmode=c-archive -o libnetworkfs.a ./cmd/networkfs
 // Exports: networkfs_version, networkfs_mount, networkfs_unmount,
 // networkfs_stat, networkfs_listdir, networkfs_openfile, networkfs_writefile,
-// networkfs_mkdir, networkfs_remove, networkfs_rename, networkfs_get_thumbnail,
+// networkfs_mkdir, networkfs_remove, networkfs_rename, networkfs_writefile_if,
+// networkfs_remove_if, networkfs_rename_if, networkfs_get_thumbnail,
 // networkfs_free.
 //
 // Unlike the per-driver libraries (libftp.a, libsftp.a, etc.), this archive
@@ -30,6 +31,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -157,7 +159,9 @@ func networkfs_unmount(mountID C.int) C.int {
 	return 0
 }
 
-// Returns JSON FileInfo or error message (caller must free with networkfs_free)
+// Returns JSON FileInfo or error message (caller must free with networkfs_free).
+// FileInfo includes "revision", the server's opaque revision, when the driver
+// reports one; pass it back unchanged to the *_if exports.
 //
 //export networkfs_stat
 func networkfs_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
@@ -298,6 +302,89 @@ func networkfs_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
 		return 1
 	}
 	return 0
+}
+
+// --- conditional mutations -------------------------------------------------
+//
+// A revision is the opaque "revision" string from networkfs_stat or
+// networkfs_listdir, passed back exactly as it was received. The caller owns
+// every string it passes; nothing is retained after the call returns. A NULL
+// revision is the same as an empty one.
+//
+// The server enforces the condition while it applies the change; nothing is
+// checked beforehand. Every conditional export returns:
+//
+//	0  success
+//	1  failure: bad arguments, unmounted ID, or a transport/server error
+//	2  precondition conflict: the remote file was not at the given revision
+//	   (another client changed, replaced, created or removed it), and nothing
+//	   at the named paths was changed
+//	3  the driver cannot have the condition enforced by its server; nothing
+//	   was sent, and the operation is never performed unconditionally instead
+const (
+	conditionalOK          = 0
+	conditionalFailed      = 1
+	conditionalConflict    = 2
+	conditionalUnsupported = 3
+)
+
+func conditionalStatus(err error) C.int {
+	switch {
+	case err == nil:
+		return conditionalOK
+	case errors.Is(err, api.ErrPreconditionFailed):
+		return conditionalConflict
+	case errors.Is(err, api.ErrConditionNotSupported):
+		return conditionalUnsupported
+	}
+	return conditionalFailed
+}
+
+// Writes data to path only if the file there is at revision. An empty or NULL
+// revision writes only if nothing exists at path, so an existing file is never
+// replaced. data follows networkfs_writefile's rules. A refused or failed write
+// leaves the existing file and its directory as they were.
+//
+//export networkfs_writefile_if
+func networkfs_writefile_if(mountID C.int, path *C.char, data C.ByteSlice, revision *C.char) C.int {
+	goData, ok := bytesFromC(data)
+	if !ok {
+		return conditionalFailed
+	}
+	driver, release, ok := manager.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.WriteFileIfMatch(driver, int(mountID), stringFromC(path), stringFromC(revision), goData))
+}
+
+// Removes path (a directory with its contents) only if it is at revision,
+// which may not be empty or NULL.
+//
+//export networkfs_remove_if
+func networkfs_remove_if(mountID C.int, path *C.char, revision *C.char) C.int {
+	driver, release, ok := manager.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.RemoveIfMatch(driver, int(mountID), stringFromC(path), stringFromC(revision)))
+}
+
+// Moves oldPath to newPath only if oldPath is at oldRevision, which may not be
+// empty or NULL. An empty or NULL newRevision requires that nothing exist at
+// newPath; otherwise newPath must be at newRevision and is replaced.
+//
+//export networkfs_rename_if
+func networkfs_rename_if(mountID C.int, oldPath *C.char, newPath *C.char, oldRevision *C.char, newRevision *C.char) C.int {
+	driver, release, ok := manager.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.RenameIfMatch(driver, int(mountID), stringFromC(oldPath), stringFromC(newPath),
+		stringFromC(oldRevision), stringFromC(newRevision)))
 }
 
 // Returns thumbnail bytes via out (caller must free out.data with

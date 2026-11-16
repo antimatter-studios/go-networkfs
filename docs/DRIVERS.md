@@ -74,6 +74,17 @@ signatures. Practical notes beyond the types:
   (`ErrNotFound`, `ErrPermissionDenied`, etc.). Unknown errors pass
   through unwrapped — callers shouldn't have to know your underlying
   library's error types to distinguish kinds.
+- **Revisions and conditional mutations** are optional. A driver whose
+  server can enforce a precondition fills `FileInfo.Revision` with the
+  server's opaque revision and implements `api.ConditionalDriver`
+  ([`pkg/api/conditional.go`](../pkg/api/conditional.go)). The condition
+  must be checked by the server while it applies the change: a `Stat`
+  followed by an unconditional write is not an implementation, and a
+  driver that cannot do better does not implement the interface, so the
+  dispatcher refuses the operation with `ErrConditionNotSupported`
+  instead. A refused precondition returns `api.ErrPreconditionFailed`
+  (wrapped is fine; callers use `errors.Is`) and changes nothing. WebDAV
+  is the only driver that implements it today.
 
 ## Security defaults
 

@@ -1,6 +1,6 @@
 // A small in-process HTTP fixture for the C ABI harnesses.
 //
-// The real WebDAV server the harnesses mount (test/webdavd) answers every
+// The real WebDAV server the harnesses mount (Apache mod_dav) answers every
 // request correctly, so it cannot show what an export does when a server
 // misbehaves: a body cut short of its Content-Length, or two servers whose
 // writes must not cross. This fixture can. It runs on a thread inside the

@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"runtime/debug"
@@ -46,6 +47,11 @@ type WebDAVDriver struct {
 	pass       string
 	pathPrefix string
 	client     *gowebdav.Client
+	// auth and transport are shared with the short-lived clients that carry
+	// a conditional request's If header (see conditionalClient), so those
+	// requests reuse the negotiated authentication and are counted in stats.
+	auth      gowebdav.Authorizer
+	transport http.RoundTripper
 	// Per-mount transport counters fed by api.CountingTransport. The
 	// host-side IOStatsCollector polls a Snapshot() each tick.
 	stats *api.MountStats
@@ -117,7 +123,8 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	d.pass = pass
 	d.pathPrefix = pathPrefix
 
-	d.client = gowebdav.NewClient(baseURL, user, pass)
+	d.auth = gowebdav.NewAutoAuth(user, pass)
+	d.client = gowebdav.NewAuthClient(baseURL, d.auth)
 
 	// Wire a CountingTransport into gowebdav's underlying http.Client so
 	// every PROPFIND / GET / PUT / MKCOL / DELETE flows through our
@@ -126,7 +133,8 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	// CountingTransport fall back to http.DefaultTransport, matching the
 	// gowebdav default (it never sets one explicitly).
 	d.stats = &api.MountStats{}
-	d.client.SetTransport(api.NewCountingTransport(nil, d.stats))
+	d.transport = api.NewCountingTransport(nil, d.stats)
+	d.client.SetTransport(d.transport)
 
 	// Optional: validate with Connect (may no-op depending on server).
 	if connErr := d.client.Connect(); connErr != nil {
@@ -192,12 +200,13 @@ func (d *WebDAVDriver) Stat(mountID int, path string) (info api.FileInfo, err er
 	}
 
 	return api.FileInfo{
-		Name:    name,
-		Path:    path,
-		Size:    fi.Size(),
-		IsDir:   fi.IsDir(),
-		ModTime: fi.ModTime().Unix(),
-		Mode:    uint32(fi.Mode()),
+		Name:     name,
+		Path:     path,
+		Size:     fi.Size(),
+		IsDir:    fi.IsDir(),
+		ModTime:  fi.ModTime().Unix(),
+		Mode:     uint32(fi.Mode()),
+		Revision: revisionOf(fi),
 	}, nil
 }
 
@@ -225,12 +234,13 @@ func (d *WebDAVDriver) ListDir(mountID int, path string) (infos []api.FileInfo, 
 	for _, f := range files {
 		childPath := trimmed + "/" + f.Name()
 		out = append(out, api.FileInfo{
-			Name:    f.Name(),
-			Path:    childPath,
-			Size:    f.Size(),
-			IsDir:   f.IsDir(),
-			ModTime: f.ModTime().Unix(),
-			Mode:    uint32(f.Mode()),
+			Name:     f.Name(),
+			Path:     childPath,
+			Size:     f.Size(),
+			IsDir:    f.IsDir(),
+			ModTime:  f.ModTime().Unix(),
+			Mode:     uint32(f.Mode()),
+			Revision: revisionOf(f),
 		})
 	}
 
@@ -266,6 +276,10 @@ type webdavWriter struct {
 	driver *WebDAVDriver
 	path   string
 	closed bool
+	// commit moves the uploaded temporary resource (a full server path) onto
+	// the target. CreateFile's replaces whatever is there; CreateFileIfMatch's
+	// carries the caller's precondition.
+	commit func(fullTemporary string) error
 }
 
 func (w *webdavWriter) Write(p []byte) (n int, err error) {
@@ -306,7 +320,7 @@ func (w *webdavWriter) Close() (err error) {
 	if err := w.driver.client.Write(fullTemporary, w.buf.Bytes(), 0644); err != nil {
 		return discard(err)
 	}
-	if err := w.driver.client.Rename(fullTemporary, w.driver.fullPath(w.path), true); err != nil {
+	if err := w.commit(fullTemporary); err != nil {
 		return discard(err)
 	}
 	return nil
@@ -316,10 +330,11 @@ func (d *WebDAVDriver) CreateFile(mountID int, path string) (io.WriteCloser, err
 	if !d.connected || d.client == nil {
 		return nil, api.ErrNotConnected
 	}
-	return &webdavWriter{
-		driver: d,
-		path:   path,
-	}, nil
+	w := &webdavWriter{driver: d, path: path}
+	w.commit = func(fullTemporary string) error {
+		return d.client.Rename(fullTemporary, d.fullPath(path), true)
+	}
+	return w, nil
 }
 
 // Mkdir creates a single directory.

@@ -278,8 +278,10 @@ up_sftp() {
     echo "  sftp     127.0.0.1:$SFTP_PORT (user $SFTP_USER, root /upload)"
 }
 
-# Also built from source: test/webdavd over golang.org/x/net/webdav, replacing
-# an amd64-only image for the same reason as sftp (#16, #20).
+# Also built here: Apache httpd's mod_dav from .github/docker/webdav, on a
+# pinned multi-arch base. It replaced test/webdavd, which itself replaced an
+# amd64-only image (#16, #20), because the driver's conditional mutations need
+# a server that evaluates entity tags in an If header (#70).
 up_webdav() {
     build_image "$DAV_IMAGE" -f .github/docker/webdav/Dockerfile .
     rm_container "$DAV_CONTAINER"

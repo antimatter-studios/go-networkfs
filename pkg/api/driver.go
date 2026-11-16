@@ -20,6 +20,9 @@ type FileInfo struct {
 	IsDir   bool   `json:"is_dir"`
 	ModTime int64  `json:"mod_time"`
 	Mode    uint32 `json:"mode"`
+	// Revision is the server's opaque identifier for this state of the
+	// file, or empty when the driver reports none. See conditional.go.
+	Revision string `json:"revision,omitempty"`
 }
 
 // Driver is the interface all network filesystem backends implement

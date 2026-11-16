@@ -352,6 +352,61 @@ eighteen of them, and a consumer copies the contents.
 `2` mount failed, `-1` invalid JSON. `networkfs_get_stats` returns
 zero counters for drivers that don't implement `StatsProvider`.
 
+### Revisions and conditional mutations
+
+A client that edits a remote file other clients can also edit needs the
+server to refuse its change when the file moved on since it looked. Stat
+and listdir report each entry's `revision`: the server's opaque
+identifier for that state of the file (for WebDAV, its entity tag,
+quotes and any `W/` prefix included). It is omitted when the driver
+reports none. Treat it as an opaque string: store it and hand it back
+exactly as received; never parse it or build one from size and time,
+since two states with the same size and modification time can have
+different revisions.
+
+```c
+int networkfs_writefile_if(int mount_id, const char* path, ByteSlice data,
+                           const char* revision);
+int networkfs_remove_if(int mount_id, const char* path, const char* revision);
+int networkfs_rename_if(int mount_id, const char* old_path, const char* new_path,
+                        const char* old_revision, const char* new_revision);
+```
+
+The WebDAV archive exports the same three as `webdav_writefile_if`,
+`webdav_remove_if` and `webdav_rename_if`. The caller owns every string
+it passes; nothing is kept after the call returns, and `NULL` is the
+same as `""`.
+
+- `writefile_if` replaces `path` only if it is at `revision`. An empty
+  revision creates the file only if nothing is at `path`.
+- `remove_if` removes `path` (a directory with its contents) only if it
+  is at `revision`, which may not be empty.
+- `rename_if` moves `old_path` only if it is at `old_revision`, which may
+  not be empty. An empty `new_revision` requires `new_path` to be free;
+  otherwise `new_path` must be at `new_revision` and is replaced.
+
+Each returns `0` success; `1` failure (bad arguments, an unmounted ID, a
+transport or server error); `2` precondition conflict, where another
+client changed, replaced, created or removed the file and nothing at
+the named paths was changed; `3` the driver cannot have the condition
+enforced by its server, so nothing was sent. None of them falls back to
+the unconditional operation.
+
+The server enforces the condition while it applies the change, so no
+check-then-write window exists. For WebDAV the revision goes back in an
+RFC 4918 `If` header, one tagged list per resource, and a save is still
+an upload to a temporary resource followed by a `MOVE`, conditioned on
+the target, so a refused save leaves the target and its directory as
+they were. A server that cannot evaluate an entity tag in an `If` header
+(`golang.org/x/net/webdav` is one) refuses every conditional operation
+with a conflict; it does not perform them unconditionally. A server
+that ignores the header entirely cannot be told apart from one that
+honours it. WebDAV is the only driver that supports these today; every
+other driver returns `3`. After a successful conditional write, stat the
+file again for its new revision. In Go, the same operations are
+`api.WriteFileIfMatch`, `api.RemoveIfMatch` and `api.RenameIfMatch`,
+which return `api.ErrPreconditionFailed` and `api.ErrConditionNotSupported`.
+
 In a Swift package, drop the `.a` and `.h` into a binary target and
 declare a bridging header:
 

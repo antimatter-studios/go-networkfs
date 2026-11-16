@@ -3,7 +3,8 @@
 // Builds as: go build -buildmode=c-archive -o libwebdav.a ./webdav/cmd/webdav
 // Exports: webdav_version, webdav_mount, webdav_unmount, webdav_stat,
 // webdav_listdir, webdav_openfile, webdav_writefile, webdav_mkdir,
-// webdav_remove, webdav_rename, webdav_free.
+// webdav_remove, webdav_rename, webdav_writefile_if, webdav_remove_if,
+// webdav_rename_if, webdav_free.
 //
 // NOTE: cgo marshaling helpers (stringFromC, jsonToC, setOutString, …)
 // are intentionally inlined here rather than imported from
@@ -29,6 +30,7 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"unsafe"
@@ -138,7 +140,9 @@ func webdav_unmount(mountID C.int) C.int {
 	return 0
 }
 
-// Returns JSON FileInfo or error (caller must free with webdav_free)
+// Returns JSON FileInfo or error (caller must free with webdav_free). FileInfo
+// includes "revision", the entity tag, when the server reports one; pass it
+// back unchanged to the *_if exports.
 //
 //export webdav_stat
 func webdav_stat(mountID C.int, path *C.char, outJSON **C.char) C.int {
@@ -271,6 +275,89 @@ func webdav_rename(mountID C.int, oldPath *C.char, newPath *C.char) C.int {
 		return 1
 	}
 	return 0
+}
+
+// --- conditional mutations -------------------------------------------------
+//
+// A revision is the opaque "revision" string from webdav_stat or
+// webdav_listdir, passed back exactly as it was received. The caller owns
+// every string it passes; nothing is retained after the call returns. A NULL
+// revision is the same as an empty one.
+//
+// The server enforces the condition while it applies the change; nothing is
+// checked beforehand. Every conditional export returns:
+//
+//	0  success
+//	1  failure: bad arguments, unmounted ID, or a transport/server error
+//	2  precondition conflict: the remote file was not at the given revision
+//	   (another client changed, replaced, created or removed it), and nothing
+//	   at the named paths was changed
+//	3  the driver cannot have the condition enforced by its server; nothing
+//	   was sent, and the operation is never performed unconditionally instead
+const (
+	conditionalOK          = 0
+	conditionalFailed      = 1
+	conditionalConflict    = 2
+	conditionalUnsupported = 3
+)
+
+func conditionalStatus(err error) C.int {
+	switch {
+	case err == nil:
+		return conditionalOK
+	case errors.Is(err, api.ErrPreconditionFailed):
+		return conditionalConflict
+	case errors.Is(err, api.ErrConditionNotSupported):
+		return conditionalUnsupported
+	}
+	return conditionalFailed
+}
+
+// Writes data to path only if the file there is at revision. An empty or NULL
+// revision writes only if nothing exists at path, so an existing file is never
+// replaced. data follows webdav_writefile's rules. A refused or failed write
+// leaves the existing file and its directory as they were.
+//
+//export webdav_writefile_if
+func webdav_writefile_if(mountID C.int, path *C.char, data C.ByteSlice, revision *C.char) C.int {
+	goData, ok := bytesFromC(data)
+	if !ok {
+		return conditionalFailed
+	}
+	driver, release, ok := mounts.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.WriteFileIfMatch(driver, int(mountID), stringFromC(path), stringFromC(revision), goData))
+}
+
+// Removes path (a directory with its contents) only if it is at revision,
+// which may not be empty or NULL.
+//
+//export webdav_remove_if
+func webdav_remove_if(mountID C.int, path *C.char, revision *C.char) C.int {
+	driver, release, ok := mounts.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.RemoveIfMatch(driver, int(mountID), stringFromC(path), stringFromC(revision)))
+}
+
+// Moves oldPath to newPath only if oldPath is at oldRevision, which may not be
+// empty or NULL. An empty or NULL newRevision requires that nothing exist at
+// newPath; otherwise newPath must be at newRevision and is replaced.
+//
+//export webdav_rename_if
+func webdav_rename_if(mountID C.int, oldPath *C.char, newPath *C.char, oldRevision *C.char, newRevision *C.char) C.int {
+	driver, release, ok := mounts.Acquire(int(mountID))
+	if !ok {
+		return conditionalFailed
+	}
+	defer release()
+	return conditionalStatus(api.RenameIfMatch(driver, int(mountID), stringFromC(oldPath), stringFromC(newPath),
+		stringFromC(oldRevision), stringFromC(newRevision)))
 }
 
 // Frees memory allocated by webdav_stat, webdav_listdir, webdav_openfile,
