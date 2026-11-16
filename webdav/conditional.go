@@ -79,28 +79,52 @@ type condition struct {
 	revision string
 }
 
-// statusRecorder keeps the status of the last response a conditional client
-// received. gowebdav reduces some statuses to success -- DELETE's 404 among
-// them -- so the operation reads the status itself.
-type statusRecorder struct {
-	base   http.RoundTripper
-	status int
+// conditionalTransport sends the one request a conditional operation makes
+// and keeps the status of its response.
+//
+// gowebdav acts on some answers with requests of its own: a MOVE answered 409
+// Conflict is followed by an MKCOL of the destination's parents and the MOVE
+// again. No precondition covers those -- the MKCOL would recreate a directory
+// another client removed (#85), and the repeated MOVE would succeed in the
+// directory it recreated -- so once the server has answered the operation's
+// request, every further request is refused before it leaves, as is any
+// request of another method. The operation then fails on the status of the
+// one it sent. A request repeated for authentication (after 401) or to follow
+// a redirect is still that request, and is sent.
+//
+// gowebdav also reduces some statuses to success -- DELETE's 404 among them
+// -- so the operation reads the status itself.
+type conditionalTransport struct {
+	base     http.RoundTripper
+	method   string
+	answered bool
+	status   int
 }
 
-func (s *statusRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
+func (s *conditionalTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if s.answered || request.Method != s.method {
+		if request.Body != nil {
+			_ = request.Body.Close()
+		}
+		return nil, fmt.Errorf("webdav: conditional %s answered %d: refused to follow it with %s %s, which no precondition covers",
+			s.method, s.status, request.Method, request.URL.Path)
+	}
 	response, err := s.base.RoundTrip(request)
 	if response != nil {
 		s.status = response.StatusCode
+		redirect := s.status >= 300 && s.status < 400
+		s.answered = s.status != http.StatusUnauthorized && !redirect
 	}
 	return response, err
 }
 
-// conditionalClient returns a client for one conditional operation, carrying
-// conditions as its If header. It shares the mount's authorizer and counting
-// transport, and is used by one goroutine and then dropped, so the header is
-// never seen by any other request.
-func (d *WebDAVDriver) conditionalClient(conditions ...condition) (*gowebdav.Client, *statusRecorder) {
-	recorder := &statusRecorder{base: d.transport}
+// conditionalClient returns a client for one conditional operation, which
+// sends only requests of method and carries conditions as its If header. It
+// shares the mount's authorizer and counting transport, and is used by one
+// goroutine and then dropped, so the header is never seen by any other
+// request.
+func (d *WebDAVDriver) conditionalClient(method string, conditions ...condition) (*gowebdav.Client, *conditionalTransport) {
+	recorder := &conditionalTransport{base: d.transport, method: method}
 	client := gowebdav.NewAuthClient(d.baseURL, d.auth)
 	client.SetTransport(recorder)
 	if len(conditions) > 0 {
@@ -118,7 +142,7 @@ func (d *WebDAVDriver) conditionalClient(conditions ...condition) (*gowebdav.Cli
 // observed (observedSource), a 404 means it is no longer there, which is the
 // same conflict; a save's request URI is its own temporary upload, whose
 // absence is an ordinary failure.
-func conditionResult(err error, recorder *statusRecorder, observedSource bool) error {
+func conditionResult(err error, recorder *conditionalTransport, observedSource bool) error {
 	switch {
 	case recorder.status == http.StatusPreconditionFailed,
 		recorder.status == http.StatusNotFound && observedSource:
@@ -131,6 +155,10 @@ func conditionResult(err error, recorder *statusRecorder, observedSource bool) e
 // oldRevision unless it is empty (a save's own temporary upload). With an
 // empty newRevision the destination must not exist; otherwise it must exist
 // at newRevision and is replaced.
+//
+// A 409 Conflict is RFC 4918's answer when the destination's parent
+// collection does not exist. It is reported as ErrNotFound and nothing is
+// created: that collection may be a directory another client removed.
 func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) error {
 	var conditions []condition
 	if oldRevision != "" {
@@ -139,8 +167,11 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 	if newRevision != "" {
 		conditions = append(conditions, condition{fullNew, newRevision})
 	}
-	client, recorder := d.conditionalClient(conditions...)
+	client, recorder := d.conditionalClient("MOVE", conditions...)
 	err := client.Rename(fullOld, fullNew, newRevision != "")
+	if recorder.status == http.StatusConflict {
+		return fmt.Errorf("webdav: MOVE to %s: %w: its parent collection does not exist (HTTP 409)", fullNew, api.ErrNotFound)
+	}
 	return conditionResult(err, recorder, oldRevision != "")
 }
 
@@ -183,7 +214,7 @@ func (d *WebDAVDriver) RemoveIfMatch(mountID int, path, revision string) (err er
 		return err
 	}
 	full := d.fullPath(path)
-	client, recorder := d.conditionalClient(condition{full, revision})
+	client, recorder := d.conditionalClient(http.MethodDelete, condition{full, revision})
 	err = client.Remove(full)
 	return conditionResult(err, recorder, true)
 }
