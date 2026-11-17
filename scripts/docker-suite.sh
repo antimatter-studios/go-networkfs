@@ -48,8 +48,8 @@ else
     docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . >/dev/null
 fi
 
-# The module cache is a named volume so a second run does not re-download the
-# world. /src is this checkout: the suite writes coverage.out and tmp/logs/
+# The caches use named volumes locally and restored host directories in CI.
+# /src is this checkout: the suite writes coverage.out and tmp/logs/
 # where the host can read them, which is what CI uploads.
 #
 # `chore test:ci` inside, not a script: the container runs the same task name a
@@ -61,9 +61,14 @@ fi
 # reason for existing is that the servers are up (issue #6) — and the harnesses
 # run in here, where nothing about the outer runner is visible unless it is
 # passed in. Empty on a developer machine, which is the laptop case.
+module_cache="${GO_MODULE_CACHE:-go-networkfs-gomod}"
+build_cache="${GO_BUILD_CACHE:-go-networkfs-gobuild}"
+for cache in "$module_cache" "$build_cache"; do
+    case "$cache" in /*) mkdir -p "$cache" ;; esac
+done
 docker run --rm --network "$TEST_NETWORK" \
-    -v "$REPO":/src -v go-networkfs-gomod:/go/pkg/mod \
-    -v go-networkfs-gobuild:/go/build-cache -e GOCACHE=/go/build-cache \
+    -v "$REPO":/src -v "$module_cache":/go/pkg/mod \
+    -v "$build_cache":/go/build-cache -e GOCACHE=/go/build-cache \
     -e SMB_ADDR=samba    -e SMB_PORT=445 \
     -e S3_ADDR=sss3      -e S3_PORT=5553 \
     -e FTP_ADDR=ftp      -e FTP_PORT=21 \

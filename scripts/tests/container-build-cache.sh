@@ -41,6 +41,15 @@ for verbose in 0 1; do
         || fail "the successful suite tears its servers down"
 done
 
+GO_BUILD_CACHE="$sandbox/ci cache/build" GO_MODULE_CACHE="$sandbox/ci cache/modules" \
+    bash "$sandbox/repo/scripts/docker-suite.sh"
+grep -qx "$sandbox/ci cache/build:/go/build-cache" "$FAKE_DOCKER_LOG" \
+    || fail "CI can restore the compilation cache outside an ephemeral Docker volume"
+grep -qx "$sandbox/ci cache/modules:/go/pkg/mod" "$FAKE_DOCKER_LOG" \
+    || fail "CI can restore the module cache outside an ephemeral Docker volume"
+[ -d "$sandbox/ci cache/build" ] && [ -d "$sandbox/ci cache/modules" ] \
+    || fail "host cache directories exist before Docker mounts them"
+
 : > "$FAKE_SERVERS_LOG"
 status=0
 FAKE_BUILD_EXIT=27 bash "$sandbox/repo/scripts/docker-suite.sh" || status=$?

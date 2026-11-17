@@ -220,8 +220,16 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
     timeout-minutes: 5
+    env:
+      GO_BUILD_CACHE: ${{ runner.temp }}/go-networkfs-cache/build
+      GO_MODULE_CACHE: ${{ runner.temp }}/go-networkfs-cache/modules
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/go-networkfs-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}
 
       # Everything runs inside containers: eleven servers for the drivers that
       # need one, and a runner carrying the Go toolchain, a C compiler and
