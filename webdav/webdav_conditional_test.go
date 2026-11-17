@@ -138,6 +138,11 @@ func TestConditionsAreTaggedListsOnTheResourcesTheyName(t *testing.T) {
 	url, requests := recordingServer(t, http.StatusNoContent)
 	d := mountWithPrefix(t, url, "/dav")
 	const rev, rev2 = `"r1"`, `W/"r2"`
+	// A conditional save never creates the directory it saves into (#90),
+	// so the prefix has to exist on the server.
+	if err := d.Mkdir(1, "/"); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := d.RemoveIfMatch(1, "/a b.txt", rev); err != nil {
 		t.Fatal(err)
@@ -319,6 +324,47 @@ func TestConditionalMoveIntoAMissingParentCreatesNothing(t *testing.T) {
 			}
 			if what != "create-only save" && got[0].ifHeader == "" {
 				t.Errorf("the MOVE carried no If header: %+v", got[0])
+			}
+		})
+	}
+}
+
+// A conditional save into a directory that does not exist fails, and creates
+// nothing (#90). Its temporary upload is a PUT beside the target, which a
+// server answers 404 or 409 when that directory is missing; gowebdav's Write
+// answers either by MKCOL-ing the missing parents and repeating the PUT, which
+// would recreate a directory another client removed before the conditional
+// MOVE is even sent. With an empty revision that MOVE would then succeed and
+// create the file inside the recreated directory.
+func TestConditionalSaveIntoAMissingDirectoryCreatesNothing(t *testing.T) {
+	for what, revision := range map[string]string{"save": `"r"`, "create-only save": ""} {
+		t.Run(what, func(t *testing.T) {
+			root := t.TempDir()
+			var mu sync.Mutex
+			var mkcols []string
+			handler := &dav.Handler{FileSystem: dav.Dir(root), LockSystem: dav.NewMemLS()}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "MKCOL" {
+					mu.Lock()
+					mkcols = append(mkcols, r.URL.Path)
+					mu.Unlock()
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			t.Cleanup(server.Close)
+			d := mount(t, server.URL)
+
+			err := api.WriteFileIfMatch(d, 1, "/gone/sub/c.txt", revision, []byte("x"))
+			if !errors.Is(err, api.ErrNotFound) {
+				t.Errorf("got %v, want ErrNotFound for the missing directory", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, "gone")); !os.IsNotExist(statErr) {
+				t.Errorf("the missing directory was created (stat: %v)", statErr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(mkcols) != 0 {
+				t.Errorf("the save sent MKCOL %v, which no precondition covers", mkcols)
 			}
 		})
 	}

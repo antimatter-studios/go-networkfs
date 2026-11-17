@@ -329,7 +329,7 @@ tasks:
     # It carries a budget of its own for the same reason, and a loose one: what
     # it prints depends on how cold the cache is, which is not a property of
     # this repository. A warm cache prints nothing at all.
-    cmds: ['bash ../rust-fs-core/scripts/tier.sh deps deps 400 40000 -- go mod download']
+    cmds: ['bash ../rust-fs-core/scripts/tier.sh deps deps 400 40000 -- scripts/download-deps.sh']
 
   deps:verify:
     desc: Check the downloaded modules against go.sum (the first thing CI does)
