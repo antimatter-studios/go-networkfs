@@ -142,3 +142,44 @@ func TestConditionalSaveNeverReturnsAnotherClientsRevision(t *testing.T) {
 		t.Fatalf("save returned revision %q it could not confirm", revision)
 	}
 }
+
+// sabre/dav 4.7 answers a HEAD whose If-None-Match matches with 412
+// Precondition Failed, where RFC 9110 (13.1.2) asks for 304 to a GET or HEAD.
+// Both say the condition evaluated false: the target is at the tag. A save
+// confirmed that way returns the tag it uploaded (#91).
+func TestConditionalSaveRevisionIsConfirmedByA412ToItsHead(t *testing.T) {
+	handler := &dav.Handler{FileSystem: dav.Dir(t.TempDir()), LockSystem: dav.NewMemLS()}
+	sabre := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "MOVE" {
+			r.Header.Del("If") // as acceptingServer: the condition holds
+		}
+		if r.Method != http.MethodHead {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, r)
+		status := recorder.Code
+		if status == http.StatusNotModified {
+			status = http.StatusPreconditionFailed
+		}
+		for k, v := range recorder.Header() {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(status)
+	}))
+	t.Cleanup(sabre.Close)
+	d := mount(t, sabre.URL)
+
+	created, err := api.WriteFileIfMatchRevision(d, 1, "/doc.txt", "", []byte("created"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := d.Stat(1, "/doc.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created == "" || created != info.Revision {
+		t.Fatalf("create returned revision %q; Stat reports %q", created, info.Revision)
+	}
+}

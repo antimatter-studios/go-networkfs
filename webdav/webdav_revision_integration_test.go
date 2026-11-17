@@ -1,7 +1,8 @@
 //go:build webdav_integration
 
 // One state of a file reports one revision, as api.SameRevision compares them
-// (#94), against Apache httpd's mod_dav.
+// (#94), against Apache httpd's mod_dav. Against Apache alone: the weak tag
+// under test is Apache's, and sabre/dav reports every tag strong.
 //
 // Apache's default entity tag for a file is built from its size and
 // modification time, and is marked weak while that modification time is
@@ -37,7 +38,7 @@ func isWeak(revision string) bool {
 // trailing slash is answered with a redirect by Apache (#83).
 func revisionClients(t *testing.T) (a, b *WebDAVDriver, name string) {
 	t.Helper()
-	cfg := integrationConfig(t)
+	cfg := integrationConfig(t, apacheServer)
 	a, b = &WebDAVDriver{}, &WebDAVDriver{}
 	if err := a.Mount(1, cfg); err != nil {
 		t.Fatalf("mount client A: %v", err)

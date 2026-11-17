@@ -95,12 +95,14 @@ type recordedRequest struct {
 }
 
 // recordingServer answers every MOVE and DELETE with status after recording
-// it, and serves everything else from an in-process WebDAV handler.
+// it, and serves everything else from an in-process WebDAV handler. A MOVE
+// answered 404 first removes its source, so the answer is true of the server.
 func recordingServer(t *testing.T, status int) (url string, requests func() []recordedRequest) {
 	t.Helper()
 	var mu sync.Mutex
 	var seen []recordedRequest
-	handler := &dav.Handler{FileSystem: dav.Dir(t.TempDir()), LockSystem: dav.NewMemLS()}
+	root := t.TempDir()
+	handler := &dav.Handler{FileSystem: dav.Dir(root), LockSystem: dav.NewMemLS()}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "MOVE" || r.Method == http.MethodDelete {
 			mu.Lock()
@@ -108,6 +110,9 @@ func recordingServer(t *testing.T, status int) (url string, requests func() []re
 				r.Header.Get("Overwrite"), r.Header.Get("If")})
 			mu.Unlock()
 			if !strings.Contains(r.URL.Path, ".networkfs-upload-") || r.Method == "MOVE" {
+				if r.Method == "MOVE" && status == http.StatusNotFound {
+					_ = os.Remove(filepath.Join(root, filepath.FromSlash(r.URL.Path)))
+				}
 				w.WriteHeader(status)
 				return
 			}
@@ -367,5 +372,67 @@ func TestConditionalSaveIntoAMissingDirectoryCreatesNothing(t *testing.T) {
 				t.Errorf("the save sent MKCOL %v, which no precondition covers", mkcols)
 			}
 		})
+	}
+}
+
+// missingConditionServer answers a MOVE whose If header names a resource that
+// does not exist with 404 Not Found, as sabre/dav 4.7 does: it looks the
+// resource up to read its entity tag and fails the lookup. RFC 4918 (10.4)
+// has the condition evaluate false and the server answer 412. Every other
+// MOVE has its condition dropped and goes through, as one whose condition
+// held would; everything else is served from an in-process WebDAV handler.
+func missingConditionServer(t *testing.T) (url, root string) {
+	t.Helper()
+	root = t.TempDir()
+	handler := &dav.Handler{FileSystem: dav.Dir(root), LockSystem: dav.NewMemLS()}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "MOVE" {
+			if named := r.Header.Get("If"); named != "" {
+				start, end := strings.Index(named, "<"), strings.Index(named, ">")
+				resource, err := urlPath(named[start+1 : end])
+				if err != nil {
+					t.Errorf("If header %q: %v", named, err)
+				}
+				if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(resource))); err != nil {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
+			}
+			r.Header.Del("If")
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL, root
+}
+
+// A save at the revision of a file another client has since removed is a
+// conflict, also on a server that answers its MOVE 404 rather than 412 (#91).
+// The 404 names the removed target, not the save's own upload, which is still
+// there; the upload is then removed and nothing else changes.
+func TestConditionalSaveOverARemovedFileConflictsOnA404(t *testing.T) {
+	url, root := missingConditionServer(t)
+	d := mount(t, url)
+	if err := api.WriteFile(d, 1, "/doc.txt", []byte("first")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := d.Stat(1, "/doc.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "doc.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = api.WriteFileIfMatch(d, 1, "/doc.txt", info.Revision, []byte("resurrected"))
+	if !errors.Is(err, api.ErrPreconditionFailed) {
+		t.Fatalf("save over the removed file: got %v, want ErrPreconditionFailed", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("the refused save left %d entries behind, the first %q", len(entries), entries[0].Name())
 	}
 }

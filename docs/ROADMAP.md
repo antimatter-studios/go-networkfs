@@ -231,7 +231,7 @@ runs one of its tasks:
 ```
 chore test:unit     no server, no container
 chore test:native   the same with -race and a coverage profile
-chore test          everything CI runs: six servers, every driver's
+chore test          everything CI runs: seven servers, every driver's
                     tagged integration tests and the C ABI, in containers
 chore bench         go test -bench=. ./ftp
 chore archives      the nine c-archives into dist/
