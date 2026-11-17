@@ -13,6 +13,7 @@
 # interrupted run used to leave six containers and a network behind, and the
 # next run then failed on a port that was already bound.
 set -euo pipefail
+export DOCKER_BUILDKIT=1
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
@@ -62,6 +63,7 @@ fi
 # passed in. Empty on a developer machine, which is the laptop case.
 docker run --rm --network "$TEST_NETWORK" \
     -v "$REPO":/src -v go-networkfs-gomod:/go/pkg/mod \
+    -v go-networkfs-gobuild:/go/build-cache -e GOCACHE=/go/build-cache \
     -e SMB_ADDR=samba    -e SMB_PORT=445 \
     -e S3_ADDR=sss3      -e S3_PORT=5553 \
     -e FTP_ADDR=ftp      -e FTP_PORT=21 \
