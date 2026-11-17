@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"io"
+	"strings"
 )
 
 // Revisions and conditional mutations.
@@ -10,10 +11,15 @@ import (
 // A revision is the server's opaque identifier for one state of a file or
 // directory: for WebDAV it is the resource's entity tag (getetag), quotes and
 // any W/ prefix included. FileInfo.Revision carries it from Stat and ListDir.
-// A caller must treat it as an opaque string: compare it for equality, store
-// it, hand it back, and never parse it or derive it from size and time. Two
-// states of a file with the same size and modification time can have
-// different revisions, and that is the point of having them.
+// A caller must treat it as an opaque string: store it, hand it back exactly
+// as received, compare it with SameRevision, and never parse it or derive it
+// from size and time. Two states of a file with the same size and
+// modification time can have different revisions, and that is the point of
+// having them. The converse also holds: one state can be reported as two
+// different strings -- a WebDAV entity tag marked weak, W/"x", and later the
+// same tag strong, "x" -- so two revisions that differ as strings need not
+// name different states. SameRevision knows which differences matter;
+// string equality does not.
 //
 // An empty revision means the driver or server reported none. A file without
 // a revision cannot be the subject of a conditional mutation: an empty
@@ -141,4 +147,44 @@ func RenameIfMatch(driver Driver, mountID int, oldPath, newPath, oldRevision, ne
 		return ErrConditionNotSupported
 	}
 	return conditional.RenameIfMatch(mountID, oldPath, newPath, oldRevision, newRevision)
+}
+
+// SameRevision reports whether revisions a and b name the same state of a
+// file. Compare revisions with it, never with ==: a server can report one
+// state as two different strings.
+//
+// A WebDAV revision is an entity tag, and a server may mark one state's tag
+// weak at one moment and strong at the next. Apache marks a file's tag weak
+// while its modification time is within a second of the request, so a file
+// nobody touches reports W/"7-66055e976a900" straight after a write and
+// "7-66055e976a900" a second later (#94). SameRevision is therefore RFC 9110's
+// weak comparison (section 8.8.3.2) when both revisions are entity tags: they
+// are the same when their opaque-tags match, whether or not either is marked
+// weak. That is also how the server compares the tags a conditional mutation
+// sends it. A revision that is not an entity tag is compared exactly.
+//
+// An empty revision names no state, so it is never the same as anything,
+// another empty revision included: two files that both report no revision
+// are not known to be unchanged.
+func SameRevision(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	tagA, aIsTag := opaqueTag(a)
+	tagB, bIsTag := opaqueTag(b)
+	if aIsTag && bIsTag {
+		return tagA == tagB
+	}
+	return a == b
+}
+
+// opaqueTag returns an entity tag's quoted opaque-tag without its weak
+// indicator (RFC 9110 section 8.8.3: entity-tag = [ "W/" ] opaque-tag), and
+// whether revision has that shape at all.
+func opaqueTag(revision string) (string, bool) {
+	tag := strings.TrimPrefix(revision, "W/")
+	if len(tag) < 2 || tag[0] != '"' || tag[len(tag)-1] != '"' || strings.Contains(tag[1:len(tag)-1], `"`) {
+		return "", false
+	}
+	return tag, true
 }

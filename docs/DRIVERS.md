@@ -88,7 +88,10 @@ signatures. Practical notes beyond the types:
   an `api.RevisionWriter` from `CreateFileIfMatch`; it reports that
   revision only when nothing another client did can have produced it (a
   `Stat` after the write can), and `""` otherwise. WebDAV is the only
-  driver that implements it today.
+  driver that implements it today. Callers compare revisions with
+  `api.SameRevision`, which weakly compares entity tags and compares
+  anything else exactly, so a driver whose revisions are not entity tags
+  must report one string per state.
 
 ## Security defaults
 

@@ -364,6 +364,22 @@ exactly as received; never parse it or build one from size and time,
 since two states with the same size and modification time can have
 different revisions.
 
+To decide whether a file changed, compare two revisions with
+`networkfs_same_revision` (or `webdav_same_revision`; `api.SameRevision`
+in Go), never with `strcmp`. One state can be reported as two different
+strings: Apache marks a file's entity tag weak while the file was
+modified within the last second, so a file nobody touches reports
+`W/"7-66055e976a900"` straight after a write and `"7-66055e976a900"` a
+second later. The comparison is RFC 9110's weak comparison for entity
+tags -- the same one the server applies to a conditional mutation --
+and exact for anything else. It returns `1` for the same state and `0`
+otherwise, and an empty or `NULL` revision is never the same as
+anything, since it names no state.
+
+```c
+int networkfs_same_revision(const char* a, const char* b);
+```
+
 ```c
 int networkfs_writefile_if(int mount_id, const char* path, ByteSlice data,
                            const char* revision);

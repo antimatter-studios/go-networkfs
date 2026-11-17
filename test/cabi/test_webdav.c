@@ -36,8 +36,8 @@ static int checks = 0;
 // EQUALITY, NOT "AT LEAST". A check added without moving the number is an
 // unreviewed change to what this file claims to prove, and it is exactly as
 // interesting as one removed. Raise it in the same commit that adds the check.
-#define EXPECTED_CHECKS_OFFLINE 52
-#define EXPECTED_CHECKS_MOUNTED 96
+#define EXPECTED_CHECKS_OFFLINE 59
+#define EXPECTED_CHECKS_MOUNTED 103
 
 static void check(int cond, const char *what) {
     checks++;
@@ -515,6 +515,19 @@ static void test_free_contract_under_repetition(void) {
     check(1, "2000 allocate/free cycles across the boundary");
 }
 
+// webdav_same_revision is the comparison a consumer is told to use instead
+// of strcmp (#94): a WebDAV server reports a state changed in the last second
+// as W/"x" and the same state later as "x". It needs no mount.
+static void test_same_revision(void) {
+    check(webdav_same_revision("\"7-a\"", "\"7-a\"") == 1, "same_revision: equal tags are the same");
+    check(webdav_same_revision("W/\"7-a\"", "\"7-a\"") == 1, "same_revision: a weak and a strong tag with one value are the same");
+    check(webdav_same_revision("\"7-a\"", "W/\"7-a\"") == 1, "same_revision: the comparison is symmetric");
+    check(webdav_same_revision("W/\"7-a\"", "\"7-b\"") == 0, "same_revision: different values differ");
+    check(webdav_same_revision("", "") == 0, "same_revision: an empty revision is never the same");
+    check(webdav_same_revision(NULL, NULL) == 0, "same_revision: NULL is an empty revision");
+    check(webdav_same_revision(NULL, "\"7-a\"") == 0, "same_revision: NULL is not the same as a tag");
+}
+
 // Built with -cover, the archive exposes a flush hook. A c-archive has no Go
 // main, so the runtime never writes its counters on the way out.
 #ifdef NETWORKFS_COVERAGE
@@ -528,6 +541,7 @@ int main(void) {
     test_openfile_unmounted();
     test_writefile_unmounted();
     test_operations_unmounted();
+    test_same_revision();
     test_free_contract_under_repetition();
     test_download_fidelity();
     test_write_length_bounds();
