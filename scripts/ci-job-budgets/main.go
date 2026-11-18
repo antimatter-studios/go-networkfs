@@ -68,10 +68,13 @@ func minutes(entry budget) (int, error) {
 	return result, nil
 }
 
-func checkJob(job workflowJob, entry budget) error {
+func checkJob(root string, job workflowJob, entry budget) error {
 	expected, err := minutes(entry)
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(job.Uses, "./") {
+		return checkLocalReusable(root, job, entry, expected)
 	}
 	if job.Uses != "" {
 		if !regexp.MustCompile(`@[a-f0-9]{40}$`).MatchString(job.Uses) || job.Uses != entry.ReusableWorkflow {
@@ -87,6 +90,42 @@ func checkJob(job workflowJob, entry budget) error {
 	}
 	if job.Timeout != expected {
 		return fmt.Errorf("timeout-minutes is %d; measured budget requires %d", job.Timeout, expected)
+	}
+	return nil
+}
+
+// checkLocalReusable verifies a reusable workflow in this repository, `uses:
+// ./.github/workflows/<file>.yml`. There is no commit to pin across
+// repositories: the callee is the caller's own commit, so the reference in the
+// evidence is the path and the limit is verified by reading that file here.
+// Every job it defines is called, and each must enforce the same budget.
+func checkLocalReusable(root string, job workflowJob, entry budget, expected int) error {
+	if job.Timeout != 0 {
+		return fmt.Errorf("reusable workflow must enforce %d minutes in its called job, not the caller", expected)
+	}
+	if job.Uses != entry.ReusableWorkflow || entry.ReusableTimeoutMinutes != expected {
+		return fmt.Errorf("reusable workflow must match its verified budget evidence, %d minutes in the called job", expected)
+	}
+	content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(job.Uses, "./"))))
+	if err != nil {
+		return fmt.Errorf("reusable workflow %s: %w", job.Uses, err)
+	}
+	var called struct {
+		Jobs map[string]workflowJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(content, &called); err != nil {
+		return fmt.Errorf("%s: %w", job.Uses, err)
+	}
+	if len(called.Jobs) == 0 {
+		return fmt.Errorf("%s: no jobs found", job.Uses)
+	}
+	for name, calledJob := range called.Jobs {
+		if calledJob.Uses != "" {
+			return fmt.Errorf("%s job %s: a nested reusable workflow is not verified", job.Uses, name)
+		}
+		if calledJob.Timeout != expected {
+			return fmt.Errorf("%s job %s: timeout-minutes is %d; measured budget requires %d", job.Uses, name, calledJob.Timeout, expected)
+		}
 	}
 	return nil
 }
@@ -129,7 +168,7 @@ func check(root string) (int, error) {
 			if !exists {
 				return checked, fmt.Errorf("%s job %s: missing budget evidence", path, name)
 			}
-			if err := checkJob(job, entry); err != nil {
+			if err := checkJob(root, job, entry); err != nil {
 				return checked, fmt.Errorf("%s job %s: %w", path, name, err)
 			}
 			delete(entries, name)

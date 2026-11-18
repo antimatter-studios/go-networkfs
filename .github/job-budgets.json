@@ -1,8 +1,13 @@
 {
   "measured_at": "2026-11-16T16:57:11.858826+00:00",
-  "method": "Ten most recent successful runs per workflow across branches. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants averaged independently; job budget uses the largest variant budget. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets. Reusable timeout verified in the called workflow at its exact SHA.",
+  "method": "Ten most recent successful runs per workflow across branches. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants averaged independently; job budget uses the largest variant budget. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets. Reusable timeout verified in the called workflow at its exact SHA; a reusable workflow in this repository is verified in place, at the commit the caller lands on.",
   "workflows": {
     "ci.yml": {
+      "runner-changes": {
+        "provisional": true,
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
       "changes": {
         "samples": {
           "changes (does this need the full pipeline?)": [
@@ -48,6 +53,11 @@
             }
           ]
         }
+      },
+      "runners": {
+        "provisional": true,
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
       },
       "test": {
         "samples": {
@@ -411,6 +421,11 @@
       }
     },
     "fuzz.yml": {
+      "runners": {
+        "provisional": true,
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
       "fuzz": {
         "samples": {
           "fuzz (explorer)": [
@@ -456,6 +471,11 @@
             }
           ]
         }
+      }
+    },
+    "runner-pick.yml": {
+      "pick": {
+        "provisional": true
       }
     },
     "branch-reap.yml": {

@@ -164,7 +164,11 @@ run_up() {
     # shellcheck disable=SC2086  # the words are the point
     (
         cd "$ROOT" || exit 98
-        env PATH="$sandbox/bin:$PATH" FAKE_DIR="$sandbox/state" \
+        # RUN_TAG is set, not inherited: the names servers.sh uses carry the
+        # run's tag on CI (scripts/test-env.sh) and would not on a workstation.
+        # A tag of the fixture's own makes this guard assert the same names in
+        # both places, and the ones a shared host actually gets.
+        env PATH="$sandbox/bin:$PATH" FAKE_DIR="$sandbox/state" RUN_TAG=fixture \
             SFTP_PORT="$port_sftp" PROXY_PORT="$port_squid" \
             SMB_PORT="$port_samba" MOCK_PORT="$port_mockapi" \
             DAV_SABRE_PORT="$port_sabredav" DAV_LIGHTTPD_PORT="$port_lighttpd" \
@@ -194,20 +198,20 @@ check_equal "no more than four are in flight by default" 4 "$(peak_in_flight)"
 check_equal "the network is created before the first server" \
     "network create" "$(grep -v 'network inspect' "$sandbox/state/calls" | head -1)"
 check_equal "every container joins the test network" 6 \
-    "$(grep -c -- '--network go-networkfs-test ' "$sandbox/state/calls")"
+    "$(grep -c -- '--network go-networkfs-test-fixture ' "$sandbox/state/calls")"
 
 # --- The report keeps the order asked for, whatever finishes first. ---------
-run_up SERVERS_UP_JOBS=6 FAKE_SLOW=go-networkfs-sftp
+run_up SERVERS_UP_JOBS=6 FAKE_SLOW=go-networkfs-sftp-fixture
 check_equal "the first server named is the last to finish here" \
-    go-networkfs-sftp "$(tail -1 "$sandbox/state/completed" 2>/dev/null)"
+    go-networkfs-sftp-fixture "$(tail -1 "$sandbox/state/completed" 2>/dev/null)"
 check_equal "ready lines follow the order the servers were named in" \
     "$NAMES" "$(printf '%s\n' "$out" | awk '{print $1}' | tr '\n' ' ' | sed 's/ $//')"
 
 # --- A failure anywhere is fatal, not only one in the last server. ----------
-run_up SERVERS_UP_JOBS=6 FAKE_FAIL=go-networkfs-sftp
+run_up SERVERS_UP_JOBS=6 FAKE_FAIL=go-networkfs-sftp-fixture
 check_equal "one server failing fails the whole command" 1 "$rc"
 check_contains "the failing server's own error is printed" \
-    "go-networkfs-sftp would not start" "$err"
+    "go-networkfs-sftp-fixture would not start" "$err"
 check_lacks "the failed server is not reported ready" "sftp     127.0.0.1" "$out"
 
 # --- A limit that could never start anything is refused. --------------------

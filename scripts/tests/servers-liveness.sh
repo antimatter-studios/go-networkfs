@@ -141,8 +141,14 @@ run_up() { # $1 = what .State.Running answers
     echo "$1" > "$sandbox/state"
     (
         cd "$ROOT" || exit 98
+        # A RUN TAG IS SET, though the fake docker would work without one:
+        # servers.sh names the container the run actually has, and that name
+        # carries the tag (scripts/test-env.sh). Unset, this guard would assert
+        # a name a workstation produces and CI never does -- it passed here and
+        # failed on the runner, which is the one place it must hold.
         PATH="$sandbox/bin:$PATH" \
         FAKE_DOCKER_STATE="$sandbox/state" \
+        RUN_TAG=fixture \
         SFTP_PORT="$port" \
             scripts/servers.sh up sftp
     ) 2>&1
@@ -155,7 +161,7 @@ elapsed=$(( $(date +%s) - start ))
 
 check_status "servers.sh up fails when the container exited" 1 "$rc" "$out"
 check_contains "it names the container and the port it was waiting on" \
-    "go-networkfs-sftp exited before it answered on port $port" "$out"
+    "go-networkfs-sftp-fixture exited before it answered on port $port" "$out"
 check_contains "it dumps the container's log, which says what went wrong" \
     "exec format error" "$out"
 check_lacks "it does not report a dead server ready" \

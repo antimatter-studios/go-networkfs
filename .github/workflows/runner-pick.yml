@@ -1,0 +1,105 @@
+# Runner pick: asks the antimatter runner gate where each named job should run,
+# the antimatter-vps runners or GitHub's, whichever has room.
+#
+# A reusable workflow, so any repository can call it as a job:
+#
+#   runners:
+#     uses: ./.github/workflows/runner-pick.yml        # or
+#     # uses: antimatter-studios/go-networkfs/.github/workflows/runner-pick.yml@main
+#     with:
+#       jobs: lint test
+#
+#   lint:
+#     needs: runners
+#     runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['lint'] || 'ubuntu-24.04' }}
+#
+# `runners` is a JSON object from job name to runner label. A job the caller
+# did not name is absent from it, and the caller's `|| 'ubuntu-24.04'` is then
+# the answer. A gate that does not answer does not fail this workflow: each pick
+# falls back, so a pick can only ever move a job, never stop it.
+#
+# Only the owner's own runs are placed. A run by anyone else, and any failure to
+# reach the gate, gets the fallback. The fallback is ubuntu-24.04, not
+# ubuntu-latest, because the vps runners are Ubuntu 24.04 and a job that fell
+# back to a newer image could pass on one and fail on the other. Name only the
+# jobs that will run: a pick holds a runner slot.
+
+name: runner-pick
+
+on:
+  workflow_call:
+    inputs:
+      jobs:
+        description: Space-separated job names to place
+        type: string
+        required: true
+      owner:
+        description: The one actor whose runs are placed
+        type: string
+        default: christhomas
+      prefer:
+        description: Runner label the gate should prefer
+        type: string
+        default: antimatter-vps-linux-x64
+      fallback:
+        description: Runner label used when the gate does not answer
+        type: string
+        default: ubuntu-24.04
+    outputs:
+      runners:
+        description: JSON object, job name to runner label
+        value: ${{ jobs.pick.outputs.runners }}
+
+permissions: {}
+
+jobs:
+  pick:
+    name: pick runners
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      runners: ${{ steps.pick.outputs.runners }}
+    steps:
+      - name: Pick runners
+        id: pick
+        env:
+          ORG: ${{ github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+          GH_ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          JOBS: ${{ inputs.jobs }}
+          OWNER: ${{ inputs.owner }}
+          PREFER: ${{ inputs.prefer }}
+          FALLBACK: ${{ inputs.fallback }}
+        run: |
+          set -euo pipefail
+          ours=true
+          for who in "$ACTOR" "$GH_ACTOR" "$SENDER" "$AUTHOR"; do
+            [ -z "$who" ] || [ "$who" = "$OWNER" ] || ours=false
+          done
+          pick() {
+            $ours || { echo "$FALLBACK"; return; }
+            runner=$(curl -fsS --max-time 10 --get https://runner-gate.antimatter-studios.com/pick \
+              --data-urlencode "org=$ORG" \
+              --data-urlencode "prefer=$PREFER" \
+              --data-urlencode "fallback=$FALLBACK" \
+              --data-urlencode "actor=$ACTOR" \
+              --data-urlencode "author=$AUTHOR" \
+              --data-urlencode "run=$RUN_ID" \
+              --data-urlencode "attempt=$RUN_ATTEMPT" \
+              --data-urlencode "job=$1") || runner=$FALLBACK
+            case "$runner" in
+              "$PREFER"|"$FALLBACK") echo "$runner" ;;
+              *) echo "$FALLBACK" ;;
+            esac
+          }
+          runners='{}'
+          for job in $JOBS; do
+            runners=$(jq -c --arg job "$job" --arg runner "$(pick "$job")" \
+              '. + {($job): $runner}' <<<"$runners")
+          done
+          echo "$runners" | jq . | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "runners=$runners" >> "$GITHUB_OUTPUT"
