@@ -13,7 +13,6 @@
 # interrupted run used to leave six containers and a network behind, and the
 # next run then failed on a port that was already bound.
 set -euo pipefail
-export DOCKER_BUILDKIT=1
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
