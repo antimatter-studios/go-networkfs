@@ -36,7 +36,13 @@ command -v docker >/dev/null 2>&1 \
 cleanup() { scripts/servers.sh down >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
+# Each phase reports its own seconds, because a job that runs out of time says
+# only that it did, never which phase ate the budget.
+phase_start=$SECONDS
+phase_done() { printf 'phase %s: %ss\n' "$1" "$((SECONDS - phase_start))"; phase_start=$SECONDS; }
+
 scripts/servers.sh up
+phase_done "servers up"
 
 # Built from the repository root, not from the Dockerfile's directory: the
 # image copies scripts/ci-install-chore.sh so that how chore is pinned and
@@ -44,11 +50,19 @@ scripts/servers.sh up
 if [ "${OUTPUT_BUDGET_VERBOSE:-0}" = 1 ]; then
     docker build -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile .
 else
-    docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . >/dev/null
+    # stderr is captured too: the legacy builder prints a deprecation notice
+    # there even with -q. A failed build shows everything it said.
+    build_status=0
+    build_out="$(docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . 2>&1)" || build_status=$?
+    if [ "$build_status" -ne 0 ]; then
+        printf '%s\n' "$build_out" >&2
+        exit "$build_status"
+    fi
 fi
+phase_done "runner image"
 
-# The module cache is a named volume so a second run does not re-download the
-# world. /src is this checkout: the suite writes coverage.out and tmp/logs/
+# The caches use named volumes locally and restored host directories in CI.
+# /src is this checkout: the suite writes coverage.out and tmp/logs/
 # where the host can read them, which is what CI uploads.
 #
 # `chore test:ci` inside, not a script: the container runs the same task name a
@@ -60,8 +74,15 @@ fi
 # reason for existing is that the servers are up (issue #6) — and the harnesses
 # run in here, where nothing about the outer runner is visible unless it is
 # passed in. Empty on a developer machine, which is the laptop case.
+module_cache="${GO_MODULE_CACHE:-go-networkfs-gomod}"
+build_cache="$GO_BUILD_CACHE"
+for cache in "$module_cache" "$build_cache"; do
+    case "$cache" in /*) mkdir -p "$cache" ;; esac
+done
+trap 'phase_done "suite"; cleanup' EXIT
 docker run --rm --network "$TEST_NETWORK" \
-    -v "$REPO":/src -v go-networkfs-gomod:/go/pkg/mod \
+    -v "$REPO":/src -v "$module_cache":/go/pkg/mod \
+    -v "$build_cache":/go/build-cache -e GOCACHE=/go/build-cache \
     -e SMB_ADDR=samba    -e SMB_PORT=445 \
     -e S3_ADDR=sss3      -e S3_PORT=5553 \
     -e FTP_ADDR=ftp      -e FTP_PORT=21 \
@@ -71,6 +92,7 @@ docker run --rm --network "$TEST_NETWORK" \
     -e DAV_LIGHTTPD_ADDR=lighttpd -e DAV_LIGHTTPD_PORT=80 \
     -e DAV_LIGHTTPD_SESS_ADDR=lighttpd-sess -e DAV_LIGHTTPD_SESS_PORT=8080 \
     -e DAV_LIGHTTPD_SHA256_ADDR=lighttpd-sha256 -e DAV_LIGHTTPD_SHA256_PORT=8080 -e DAV_LIGHTTPD_SHA256_MD5_PORT=8081 \
+    -e PROXY_ADDR=squid  -e PROXY_PORT=3128 \
     -e MOCK_ADDR=mockapi -e MOCK_PORT=8081 \
     -e OUTPUT_BUDGET_VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}" \
     -e CI="${CI:-}" -e GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \

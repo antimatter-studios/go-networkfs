@@ -1,0 +1,512 @@
+{
+  "measured_at": "2026-11-16T16:57:11.858826+00:00",
+  "method": "Ten most recent successful runs per workflow across branches. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants averaged independently; job budget uses the largest variant budget. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets. Reusable timeout verified in the called workflow at its exact SHA.",
+  "workflows": {
+    "ci.yml": {
+      "changes": {
+        "samples": {
+          "changes (does this need the full pipeline?)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 4
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 4
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 4
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 3
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 3
+            }
+          ]
+        }
+      },
+      "test": {
+        "samples": {
+          "test (ubuntu-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 53
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 68
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 69
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 60
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 66
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 69
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 70
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 58
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 77
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 73
+            }
+          ],
+          "test (macos-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 115
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 55
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 96
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 102
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 122
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 106
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 79
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 102
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 95
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 90
+            }
+          ]
+        }
+      },
+      "integration": {
+        "samples": {
+          "integration (containerised)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 273
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 107
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 145
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 120
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 136
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 146
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 152
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 144
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 163
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 150
+            }
+          ]
+        }
+      },
+      "lint": {
+        "samples": {
+          "lint": [
+            {
+              "run_id": 43876553785,
+              "seconds": 25
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 21
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 22
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 27
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 27
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 23
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 29
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 39
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 28
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 23
+            }
+          ]
+        }
+      },
+      "vulncheck": {
+        "samples": {
+          "govulncheck": [
+            {
+              "run_id": 43876553785,
+              "seconds": 18
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 19
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 18
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 21
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 23
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 31
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 16
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 21
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 18
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 12
+            }
+          ]
+        }
+      },
+      "build-archives": {
+        "samples": {
+          "c-archive builds (ubuntu-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 45
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 39
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 58
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 39
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 44
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 34
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 30
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 40
+            }
+          ],
+          "c-archive builds (macos-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 45
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 46
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 59
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 30
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 16
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 50
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 24
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 43
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 62
+            }
+          ]
+        }
+      },
+      "ci-ok": {
+        "samples": {
+          "ci-ok": [
+            {
+              "run_id": 43876553785,
+              "seconds": 0
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 1
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 1
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 1
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 0
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 1
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 0
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 1
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 0
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 0
+            }
+          ]
+        }
+      }
+    },
+    "fuzz.yml": {
+      "fuzz": {
+        "samples": {
+          "fuzz (explorer)": [
+            {
+              "run_id": 43705835795,
+              "seconds": 2418
+            },
+            {
+              "run_id": 42205537361,
+              "seconds": 2425
+            },
+            {
+              "run_id": 42609110702,
+              "seconds": 2432
+            },
+            {
+              "run_id": 42362200925,
+              "seconds": 2432
+            },
+            {
+              "run_id": 43007370221,
+              "seconds": 2425
+            },
+            {
+              "run_id": 43855502327,
+              "seconds": 2419
+            },
+            {
+              "run_id": 43412863037,
+              "seconds": 2428
+            },
+            {
+              "run_id": 42804833365,
+              "seconds": 2429
+            },
+            {
+              "run_id": 43584857813,
+              "seconds": 2448
+            },
+            {
+              "run_id": 43205450763,
+              "seconds": 2424
+            }
+          ]
+        }
+      }
+    },
+    "branch-reap.yml": {
+      "reap": {
+        "samples": {
+          "reap / reap": [
+            {
+              "run_id": 43869867574,
+              "seconds": 14
+            },
+            {
+              "run_id": 43734144222,
+              "seconds": 6
+            },
+            {
+              "run_id": 43731875895,
+              "seconds": 11
+            },
+            {
+              "run_id": 43869866897,
+              "seconds": 5
+            },
+            {
+              "run_id": 43732758155,
+              "seconds": 3
+            },
+            {
+              "run_id": 43728739536,
+              "seconds": 6
+            },
+            {
+              "run_id": 43869868270,
+              "seconds": 3
+            },
+            {
+              "run_id": 43733362193,
+              "seconds": 5
+            },
+            {
+              "run_id": 43729685696,
+              "seconds": 4
+            },
+            {
+              "run_id": 43753726328,
+              "seconds": 6
+            }
+          ]
+        },
+        "reusable_workflow": "antimatter-studios/rust-fs-core/.github/workflows/branch-reap.yml@17e99aad9186bf14dbc78987ebc341a4810c19e0",
+        "reusable_timeout_minutes": 5
+      }
+    }
+  }
+}

@@ -4,16 +4,13 @@
 # stupid-simple-s3 can. This stands in for all three so the drivers that use
 # them can be tested without any connected service — including from the C ABI
 # harnesses, which are separate programs and cannot reach an in-process fake.
-FROM golang:1.26-bookworm AS build
-
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o /out/mockapi ./test/mockapi
-
+#
+# THE BINARY IS COMPILED BEFORE THIS BUILD, by compile_mockapi in
+# scripts/servers.sh, and is the whole build context. A compile stage here
+# starts with an empty Go cache on every runner, so each run compiled the
+# standard library again; outside the build it uses the cache CI restores.
 FROM gcr.io/distroless/static-debian12
-COPY --from=build /out/mockapi /mockapi
+COPY mockapi /mockapi
 ENV MOCKAPI_ADDR=:8081
 EXPOSE 8081
 ENTRYPOINT ["/mockapi"]

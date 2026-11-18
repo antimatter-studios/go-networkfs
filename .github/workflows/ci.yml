@@ -72,8 +72,10 @@ jobs:
   changes:
     name: changes (does this need the full pipeline?)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       code: ${{ steps.c.outputs.code }}
+      runners: ${{ steps.runners.outputs.runners || '{}' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -116,12 +118,52 @@ jobs:
           fi
           echo "code=$code ($EVENT${range:+ $range})"
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Pick runners
+        id: runners
+        env:
+          ORG: ${{ github.repository_owner }}
+          ACTOR: ${{ github.triggering_actor }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+          GH_ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          CODE: ${{ steps.c.outputs.code }}
+        run: |
+          set -euo pipefail
+          runners='{}'
+          if [ "$CODE" = true ]; then
+            ours=true
+            for who in "$ACTOR" "$GH_ACTOR" "$SENDER" "$AUTHOR"; do
+              [ -z "$who" ] || [ "$who" = christhomas ] || ours=false
+            done
+            runner=ubuntu-24.04
+            if $ours; then
+              runner=$(curl -fsS --max-time 10 --get https://runner-gate.antimatter-studios.com/pick \
+                --data-urlencode "org=$ORG" \
+                --data-urlencode prefer=antimatter-vps-linux-x64 \
+                --data-urlencode fallback=ubuntu-24.04 \
+                --data-urlencode "actor=$ACTOR" \
+                --data-urlencode "author=$AUTHOR" \
+                --data-urlencode "run=$RUN_ID" \
+                --data-urlencode "attempt=$RUN_ATTEMPT" \
+                --data-urlencode job=integration) || runner=ubuntu-24.04
+              case "$runner" in
+                antimatter-vps-linux-x64|ubuntu-24.04) ;;
+                *) runner=ubuntu-24.04 ;;
+              esac
+            fi
+            runners=$(jq -cn --arg runner "$runner" '{integration: $runner}')
+          fi
+          echo "$runners" | jq . | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "runners=$runners" >> "$GITHUB_OUTPUT"
 
   test:
     name: test (${{ matrix.os }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -176,11 +218,38 @@ jobs:
     name: integration (containerised)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(needs.changes.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
+    timeout-minutes: 5
+    env:
+      # Every server starts at once: four at a time was three waves of image
+      # builds and port waits inside a five-minute budget.
+      SERVERS_UP_JOBS: 11
     steps:
       - uses: actions/checkout@v4
 
-      # Everything runs inside containers: ten servers for the drivers that
+      # The runner context is not available to a job-level env, so the cache
+      # locations are exported from a step.
+      - name: Go cache locations
+        run: |
+          echo "GO_BUILD_CACHE=$RUNNER_TEMP/go-networkfs-cache/build" >> "$GITHUB_ENV"
+          echo "GO_MODULE_CACHE=$RUNNER_TEMP/go-networkfs-cache/modules" >> "$GITHUB_ENV"
+
+      # Restored and saved by separate steps: a cold run that reaches its
+      # runtime limit must still keep what it compiled, or the next run is
+      # cold too and never fits. The key carries the run id so a later run
+      # replaces an earlier, smaller cache instead of finding it immutable.
+      - uses: actions/cache/restore@v4
+        id: gocache
+        with:
+          path: ${{ runner.temp }}/go-networkfs-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
+          # The bare prefix comes last: a changed hash restores the newest older
+          # cache instead of compiling everything inside the job's time budget.
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-
+            ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-
+
+      # Everything runs inside containers: eleven servers for the drivers that
       # need one, and a runner carrying the Go toolchain, a C compiler and
       # chore. No toolchain is installed on this runner, so what CI executes is
       # what a contributor executes with `chore test`.
@@ -200,6 +269,15 @@ jobs:
       - name: chore test
         run: chore test
 
+      # Only a run that restored nothing, or only a cache of an older hash,
+      # saves: the upload of a warm run's
+      # 230MB took 2m32s of the five-minute budget and added nothing.
+      - uses: actions/cache/save@v4
+        if: always() && (steps.gocache.outputs.cache-matched-key == '' || !contains(steps.gocache.outputs.cache-matched-key, hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile')))
+        with:
+          path: ${{ runner.temp }}/go-networkfs-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -211,6 +289,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -239,6 +318,7 @@ jobs:
   vulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
@@ -270,6 +350,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -307,6 +388,7 @@ jobs:
     if: always()
     needs: [changes, test, integration, lint, vulncheck, build-archives]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: every gating job must have concluded success
         env:

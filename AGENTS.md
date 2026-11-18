@@ -314,6 +314,47 @@ Judging mergeability from check **conclusions** is unreliable: an in-progress
 no conclusion field at all. Read `mergeStateStatus` and
 `statusCheckRollup.state`.
 
+## Per-job runtime budgets
+
+Every job in every pipeline must have an enforced runtime budget, on every
+branch. When creating or changing a workflow or job, inspect **all** workflows
+under `.github/workflows/`, not only the job being changed, and validate their
+budgets before reporting the work complete.
+
+- Set job-level `timeout-minutes` to
+  `max(5, ceil(average_successful_execution_seconds * 1.5 / 60))`.
+  This is per job, including each matrix leg, never a limit on the entire
+  pipeline. Round up to whole minutes; do not truncate the 50% allowance.
+- Use the ten most recent successful runs of that workflow across branches.
+  Average each job and matrix variant separately, from its first executed
+  step's start to its last executed step's completion. Exclude runner queue
+  time and failed, cancelled, skipped or hung jobs. A shared literal timeout
+  for a matrix uses the largest calculated variant budget.
+- Record the source run IDs and execution seconds in `.github/job-budgets.json`.
+  Keep budgets static and reviewable: do not recalculate them during CI or
+  automatically increase them after a timeout. A job with no measurements
+  starts at five minutes with `provisional: true`; replace that provisional
+  entry with successful-run measurements as soon as they exist.
+- A timeout is a regression signal. Collect available logs and determine
+  whether the code hung or the legitimate workload grew. Fix a hang; raise a
+  budget only with successful measurements and an explanation of the growth.
+  Do not rerun a stalled job repeatedly or incorporate its duration into the
+  average to make it pass. Explicitly dispatched fuzz durations must fit the
+  recorded budget; a longer exploration needs a reviewed budget change first.
+- Reusable-workflow callers cannot set `timeout-minutes`. Verify that every
+  called job enforces its calculated limit, pin the callee to an immutable
+  commit, and record that exact reference and verified limit in the evidence.
+  Reverify every called job when changing the pin. The existing branch reaper
+  enforces five minutes in its pinned rust-fs-core workflow; do not modify a
+  shared tool to add a local budget.
+- Run `go run ./scripts/ci-job-budgets`,
+  `go test ./scripts/ci-job-budgets`, and `chore test:scripts`.
+  The guard scans every `.yml` and `.yaml` workflow and rejects missing,
+  inflated, undersized or stale budgets. It runs in the existing native CI
+  jobs on Ubuntu and macOS, so newly added jobs cannot silently fall back to
+  GitHub's default timeout. GitHub enforces each budget through
+  `timeout-minutes`; the guard validates the configuration, not runner queues.
+
 ## Never grow a shared tool to solve a problem here
 
 **Never grow a shared tool to solve a problem in this repository.** `chore` is

@@ -38,11 +38,12 @@ chore_min_version: 0.6.0
 #   Google Drive and OneDrive cannot be run locally at all (test/mockapi stands
 #   in for those three, built from this repository so it cannot drift).
 #
-#   EIGHT OF THE TEN ARE BUILT HERE, NOT PULLED: samba, mockapi, and — since
+#   NINE OF THE ELEVEN ARE BUILT HERE, NOT PULLED: samba, mockapi, and — since
 #   issues #16 and #20 — sftp and webdav, since #91 sabredav and #102
 #   lighttpd, the second and third WebDAV servers, since #100
-#   lighttpd-sess, lighttpd behind Digest MD5-sess, and since #108
-#   lighttpd-sha256, lighttpd behind Digest SHA-256. The two images those replaced
+#   lighttpd-sess, lighttpd behind Digest MD5-sess, since #108
+#   lighttpd-sha256, lighttpd behind Digest SHA-256, and since #110 squid, the
+#   forward proxy the Digest tests go through. The two images those replaced
 #   published linux/amd64 manifests alone, so on an arm64 host they exited
 #   with "exec format error" and `servers.sh up` stopped at the first of them.
 #   The consumer of these archives is a macOS application, so an Apple Silicon
@@ -447,7 +448,7 @@ tasks:
       - 'scripts/with-servers.sh s3-native -- bash ../rust-fs-core/scripts/tier.sh test:s3 s3 20 2000 -- go test -race -count=1 -tags=s3_integration -run Integration ./s3/...'
 
   test:webdav:
-    desc: WebDAV driver integration tests against throwaway Apache mod_dav, sabre/dav and lighttpd containers
+    desc: WebDAV driver integration tests against throwaway Apache mod_dav, sabre/dav and lighttpd containers, and through a Squid proxy
     # The conditional mutations (#70) are only meaningful against a server
     # that evaluates the precondition, and the in-process
     # golang.org/x/net/webdav fixture the unit tests use cannot. These tests
@@ -461,9 +462,11 @@ tasks:
     # auth offering algorithm=MD5-sess, is for the Digest tests alone: Apache
     # will not offer MD5-sess, and the answer needs checking by code that is
     # not ours (#100). lighttpd-sha256 is the same for SHA-256, which Apache
-    # does not offer either (#108).
+    # does not offer either (#108). squid is a forward proxy the Digest tests
+    # reach webdav and lighttpd-sess through, because a proxy changes the
+    # request line a Digest answer names (#110).
     cmds:
-      - 'scripts/with-servers.sh webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 -- bash ../rust-fs-core/scripts/tier.sh test:webdav webdav 20 2000 -- go test -race -count=1 -tags=webdav_integration -run Integration ./webdav/...'
+      - 'scripts/with-servers.sh webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid -- bash ../rust-fs-core/scripts/tier.sh test:webdav webdav 20 2000 -- go test -race -count=1 -tags=webdav_integration -run Integration ./webdav/...'
 
   test:cabi:
     desc: "The C ABI, exercised from C against real servers — the only caller that can reach three of its entry points"
@@ -550,7 +553,7 @@ tasks:
   # ------------------------------------------------------------------- servers
 
   servers:up:
-    desc: "Start the test servers (samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi, or s3-native; default: all ten) and wait until each answers"
+    desc: "Start the test servers (samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid mockapi, or s3-native; default: all eleven) and wait until each answers"
     # HERE SO A DEVELOPER CAN BRING THEM UP WITHOUT READING A MAKEFILE. It used
     # to take `make samba-up` — and knowing that `make test-smb` would take it
     # down again underneath you. Bring them up, run tests against them for an

@@ -2,13 +2,14 @@
 #
 # servers.sh — the test servers, as containers, with one lifecycle.
 #
-#   servers.sh up   [NAME...]   start them (default: all), wait until each is
-#                               answering, and print one line per server
+#   servers.sh up   [NAME...]   start them (default: all), a few at a time, wait
+#                               until each is answering, and print one line per
+#                               server in the order named
 #   servers.sh down [NAME...]   remove them (default: all, and the network)
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
 #
-#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi — or s3-native, the S3
+#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid mockapi — or s3-native, the S3
 #   server run as a plain binary with no Docker at all (see below).
 #
 # ONE SERVER HAS TWO SHAPES. stupid-simple-s3 ships as a single static binary
@@ -42,9 +43,13 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# `all` means these ten: the containers, on one network, which is what the
+# `all` means these eleven: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi"
+#
+# THE SLOWEST COME FIRST, because servers start in this order and only a few at
+# a time. mockapi pulls the Go image and sabredav pulls two PHP images; last in
+# the queue, mockapi's pull only began once the quick servers had finished.
+ALL_SERVERS="mockapi sabredav samba s3 ftp sftp webdav lighttpd lighttpd-sess lighttpd-sha256 squid"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -54,6 +59,11 @@ KNOWN_SERVERS="$ALL_SERVERS s3-native"
 . "$REPO/scripts/test-env.sh"
 
 VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}"
+
+# How many servers are brought up at once. A limit rather than all of them,
+# because every server's readiness wait starts its clock while the others are
+# still building on the same machine.
+SERVERS_UP_JOBS="${SERVERS_UP_JOBS:-4}"
 
 die() { echo "servers.sh: $*" >&2; exit 1; }
 
@@ -83,7 +93,14 @@ build_image() {   # $1 = tag, rest = docker build arguments
     if [ "$VERBOSE" = 1 ]; then
         docker build -t "$tag" "$@"
     else
-        docker build -q -t "$tag" "$@" >/dev/null
+        # stderr is captured too: the legacy builder prints a deprecation
+        # notice there even with -q. A failed build shows everything it said.
+        local out status=0
+        out="$(docker build -q -t "$tag" "$@" 2>&1)" || status=$?
+        if [ "$status" -ne 0 ]; then
+            printf '%s\n' "$out" >&2
+            return "$status"
+        fi
     fi
 }
 
@@ -358,10 +375,47 @@ up_lighttpd_sha256() {
          "127.0.0.1:$DAV_LIGHTTPD_SHA256_MD5_PORT (digest SHA-256 then MD5)"
 }
 
+# Squid, a forward HTTP proxy, built from .github/docker/squid. The Digest
+# tests reach the webdav and lighttpd-sess servers through it, by their names
+# on the test network, to show a Digest answer survives a proxy that rewrites
+# the request line (#110).
+up_squid() {
+    build_image "$PROXY_IMAGE" .github/docker/squid
+    rm_container "$PROXY_CONTAINER"
+    docker run -d --network "$TEST_NETWORK" --network-alias squid \
+        --name "$PROXY_CONTAINER" -p "$PROXY_PORT:3128" "$PROXY_IMAGE" >/dev/null
+    wait_for_port "$PROXY_CONTAINER" "$PROXY_PORT"
+    echo "  squid    127.0.0.1:$PROXY_PORT (forward proxy onto $TEST_NETWORK)"
+}
+
+# Compile the mock server into directory $1, against the shared Go build cache.
+#
+# NOT IN THE DOCKERFILE: a build stage cannot reach that cache, so every fresh
+# runner compiled the standard library again, and this was the slowest step of
+# `servers.sh up`. The binary leaves on stdout rather than through a mount, so
+# it belongs to the caller and the daemon needs no view of the directory.
+compile_mockapi() {   # $1 = output directory
+    # Every step returns its own failure: the caller tests this function, and
+    # that switches `set -e` off inside it.
+    ensure_image "$MOCK_BUILD_IMAGE" || return
+    case "$GO_BUILD_CACHE" in /*) mkdir -p "$GO_BUILD_CACHE" || return ;; esac
+    docker run --rm -v "$REPO":/src:ro -v "$GO_BUILD_CACHE":/go/build-cache \
+        -e GOCACHE=/go/build-cache -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+        -w /src "$MOCK_BUILD_IMAGE" \
+        sh -c 'go build -o /tmp/mockapi ./test/mockapi && cat /tmp/mockapi' \
+        > "$1/mockapi" || return
+    chmod 0755 "$1/mockapi"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
-    build_image "$MOCK_IMAGE" -f .github/docker/mockapi/Dockerfile .
+    local context status=0
+    context="$(mktemp -d)"
+    { compile_mockapi "$context" \
+        && build_image "$MOCK_IMAGE" -f .github/docker/mockapi/Dockerfile "$context"; } || status=$?
+    rm -rf "$context"
+    [ "$status" -eq 0 ] || return "$status"
     rm_container "$MOCK_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias mockapi \
         --name "$MOCK_CONTAINER" -p "$MOCK_PORT:8081" "$MOCK_IMAGE" >/dev/null
@@ -378,6 +432,7 @@ down_sabredav() { rm_container "$DAV_SABRE_CONTAINER"; }
 down_lighttpd() { rm_container "$DAV_LIGHTTPD_CONTAINER"; }
 down_lighttpd_sess() { rm_container "$DAV_LIGHTTPD_SESS_CONTAINER"; }
 down_lighttpd_sha256() { rm_container "$DAV_LIGHTTPD_SHA256_CONTAINER"; }
+down_squid()   { rm_container "$PROXY_CONTAINER"; }
 down_mockapi() { rm_container "$MOCK_CONTAINER"; }
 
 container_of() {
@@ -391,6 +446,7 @@ container_of() {
         lighttpd) echo "$DAV_LIGHTTPD_CONTAINER" ;;
         lighttpd-sess) echo "$DAV_LIGHTTPD_SESS_CONTAINER" ;;
         lighttpd-sha256) echo "$DAV_LIGHTTPD_SHA256_CONTAINER" ;;
+        squid)   echo "$PROXY_CONTAINER" ;;
         mockapi) echo "$MOCK_CONTAINER" ;;
         *)       die "unknown server '$1' (known: $KNOWN_SERVERS)" ;;
     esac
@@ -405,6 +461,47 @@ check_names() {
     done
 }
 
+# Bring the named servers up side by side.
+#
+# ONE AT A TIME THIS TOOK 162s AND 185s of a five-minute CI job on a self-hosted
+# runner, and the suite was cancelled while passing. The servers share nothing
+# but the network, which exists before this is called: each has its own image,
+# container and port.
+#
+# EACH SERVER'S OUTPUT IS HELD BACK and printed in the order named, so the report
+# reads the same however the servers happen to finish, and two servers' failures
+# cannot interleave. Every server is waited for and every failure reported; any
+# one of them fails the command.
+#
+# POLLED, NOT `wait -n`: macOS ships bash 3.2, which does not have it.
+up_output=""
+up_servers() {   # $@ = server names
+    local name pid status failed=""
+    up_output="$(mktemp -d)"
+    trap 'rm -rf "$up_output"' EXIT
+    # Without this an interrupted run leaves servers starting after the caller's
+    # teardown has already removed them.
+    # shellcheck disable=SC2046  # one word per job is the point
+    trap 'kill $(jobs -p) 2>/dev/null || true; exit 1' INT TERM
+
+    : > "$up_output/pids"
+    for name in "$@"; do
+        while [ "$(jobs -rp | wc -l)" -ge "$SERVERS_UP_JOBS" ]; do sleep 0.1; done
+        ( "up_${name//-/_}" ) >"$up_output/$name.out" 2>"$up_output/$name.err" &
+        printf '%s %s\n' "$name" "$!" >> "$up_output/pids"
+    done
+
+    while read -r name pid; do
+        status=0
+        wait "$pid" || status=$?
+        cat "$up_output/$name.out"
+        cat "$up_output/$name.err" >&2
+        [ "$status" -eq 0 ] || failed="$failed $name"
+    done < "$up_output/pids"
+
+    [ -z "$failed" ] || die "failed to start:$failed"
+}
+
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 
@@ -413,9 +510,12 @@ case "$cmd" in
         names="${*:-$ALL_SERVERS}"
         # shellcheck disable=SC2086  # the words are the point
         check_names $names
+        [[ "$SERVERS_UP_JOBS" =~ ^[1-9][0-9]*$ ]] \
+            || die "SERVERS_UP_JOBS must be a positive whole number, not '$SERVERS_UP_JOBS'"
         # shellcheck disable=SC2086
         if wants_docker $names; then need_docker; network_up; fi
-        for name in $names; do "up_${name//-/_}"; done
+        # shellcheck disable=SC2086
+        up_servers $names
         ;;
 
     down)
@@ -473,7 +573,7 @@ case "$cmd" in
         ;;
 
     ""|-h|--help)
-        sed -n '3,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         # No command at all is a usage error; --help was asked for.
         if [ -z "$cmd" ]; then exit 2; fi
         ;;
