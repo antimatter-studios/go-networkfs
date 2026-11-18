@@ -34,5 +34,24 @@ fi
 printf '%s\n' "$save" | grep -qE '^ *if:.*(always\(\)|!cancelled\(\))' \
     || fail "the cache save step must still run after a failing or timed-out test, so a cold run keeps what it compiled"
 
+# A CHANGED HASH MUST NOT START COLD. Queue run 44245171396 found no cache for
+# its go.mod/go.sum/Dockerfile hash, had no broader key to fall back on, and
+# spent 307s of a 300s budget compiling from nothing. The restore keys are tried
+# in order, so the hash-specific one stays first and the os/arch prefix follows.
+restore_keys="$(printf '%s\n' "$job" | awk '
+    /actions\/cache\/restore/{r=1;next}
+    r&&/^      - /{exit}
+    r&&/^ *restore-keys:/{k=1;next}
+    k&&(/^ *$/||/^ *[a-z-]+:/){exit}
+    k{sub(/^ +/,"");print}')"
+broad='${{ runner.os }}-${{ runner.arch }}-networkfs-integration-'
+broad_line="$(printf '%s\n' "$restore_keys" | grep -nxF -- "$broad" | head -1 | cut -d: -f1)"
+hashed_line="$(printf '%s\n' "$restore_keys" | grep -n 'hashFiles' | head -1 | cut -d: -f1)"
+if [ -z "$broad_line" ]; then
+    fail "the cache restore has no restore-keys entry of only the os/arch prefix, so a changed hash starts cold: want $broad"
+elif [ -z "$hashed_line" ] || [ "$hashed_line" -gt "$broad_line" ]; then
+    fail "the hash-specific restore key must come before the os/arch prefix, or an older cache beats an exact match"
+fi
+
 [ "$fails" -eq 0 ] && echo "integration cache save: only when cold, ok"
 exit $((fails > 0))
