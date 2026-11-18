@@ -63,7 +63,7 @@ func TestSignDigestForLeavesOtherAuthorizationsAlone(t *testing.T) {
 	for _, authorization := range []string{
 		"",
 		"Basic dGVzdHVzZXI6dGVzdHBhc3M=",
-		`Digest username="u", realm="r", nonce="n", uri="/x", algorithm=SHA-256, qop=auth, nc=00000001, cnonce="c", response="r"`,
+		`Digest username="u", realm="r", nonce="n", uri="/x", algorithm=SHA-1, qop=auth, nc=00000001, cnonce="c", response="r"`,
 		`Digest username="u", realm="r", nonce="n", uri="/x", qop=auth-int, nc=00000001, cnonce="c", response="r"`,
 		`Digest username="u", realm="r", nonce="n", uri="/root/x", qop=auth, nc=00000001, cnonce="c", response="r"`,
 	} {
