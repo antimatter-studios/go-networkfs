@@ -32,7 +32,7 @@ for verbose in 0 1; do
     : > "$FAKE_SERVERS_LOG"
     : > "$FAKE_BUILDER_ENV"
     DOCKER_BUILDKIT=0 OUTPUT_BUDGET_VERBOSE="$verbose" \
-        bash "$sandbox/repo/scripts/docker-suite.sh"
+        bash "$sandbox/repo/scripts/docker-suite.sh" >/dev/null
     [ "$(cat "$FAKE_BUILDER_ENV")" = 0 ] \
         || fail "a container build keeps the builder the runner selected (verbose=$verbose)"
     grep -qx 'go-networkfs-gobuild:/go/build-cache' "$FAKE_DOCKER_LOG" \
@@ -44,13 +44,13 @@ for verbose in 0 1; do
 
     : > "$FAKE_BUILDER_ENV"
     env -u DOCKER_BUILDKIT OUTPUT_BUDGET_VERBOSE="$verbose" \
-        bash "$sandbox/repo/scripts/docker-suite.sh"
+        bash "$sandbox/repo/scripts/docker-suite.sh" >/dev/null
     [ "$(cat "$FAKE_BUILDER_ENV")" = unset ] \
         || fail "a container build selects no builder when the runner selects none (verbose=$verbose)"
 done
 
 GO_BUILD_CACHE="$sandbox/ci cache/build" GO_MODULE_CACHE="$sandbox/ci cache/modules" \
-    bash "$sandbox/repo/scripts/docker-suite.sh"
+    bash "$sandbox/repo/scripts/docker-suite.sh" >/dev/null
 grep -qx "$sandbox/ci cache/build:/go/build-cache" "$FAKE_DOCKER_LOG" \
     || fail "CI can restore the compilation cache outside an ephemeral Docker volume"
 grep -qx "$sandbox/ci cache/modules:/go/pkg/mod" "$FAKE_DOCKER_LOG" \
@@ -60,7 +60,7 @@ grep -qx "$sandbox/ci cache/modules:/go/pkg/mod" "$FAKE_DOCKER_LOG" \
 
 : > "$FAKE_SERVERS_LOG"
 status=0
-FAKE_BUILD_EXIT=27 bash "$sandbox/repo/scripts/docker-suite.sh" || status=$?
+FAKE_BUILD_EXIT=27 bash "$sandbox/repo/scripts/docker-suite.sh" >/dev/null || status=$?
 [ "$status" -eq 27 ] || fail "a failed build preserves its exit status"
 [ "$(cat "$FAKE_SERVERS_LOG")" = "$(printf 'up\ndown')" ] \
     || fail "a failed build tears its servers down"
