@@ -227,33 +227,43 @@ func TestIntegrationStaleSaveWithUnchangedSizeAndTimeConflicts(t *testing.T) {
 	eachServer(t, func(t *testing.T, server integrationServer) {
 		a, b, dir := integrationClients(t, server)
 		path := dir + "/document.txt"
-		original := []byte("original contents A")
-		intervening := []byte("intervening edit  B")
+		// Every write is the same length, so only the revision can tell them
+		// apart. The server stamps mtime to the second, so the stale client
+		// must observe a state that a later write overwrites within the same
+		// server second. Rather than aligning to the client's clock, which
+		// need not agree with the server's, writes follow each other back to
+		// back and the pair is taken from the first two the server stamped
+		// with the same second.
+		edits := [][]byte{[]byte("intervening edit  B"), []byte("intervening edit  C")}
 		stale := []byte("stale client's save")
-
-		for attempt := 1; ; attempt++ {
-			time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
-			save(t, a, 1, path, original)
-			observed := observe(t, a, 1, path)
+		save(t, a, 1, path, []byte("original contents A"))
+		observed := observe(t, a, 1, path)
+		deadline := time.Now().Add(5 * time.Second)
+		var intervening []byte
+		for write := 0; ; write++ {
+			intervening = edits[write%len(edits)]
 			save(t, b, 2, path, intervening)
-			after := observe(t, b, 2, path)
-			if after.Size != observed.Size || after.ModTime != observed.ModTime {
-				if attempt == 5 {
-					t.Fatalf("the intervening edit never landed in the observed second: size %d->%d, mtime %d->%d",
-						observed.Size, after.Size, observed.ModTime, after.ModTime)
-				}
-				continue
+			after := observe(t, a, 1, path)
+			if after.Size != observed.Size {
+				t.Fatalf("same-length writes changed the size: %d->%d", observed.Size, after.Size)
 			}
+			if after.ModTime == observed.ModTime {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no two of %d back-to-back writes shared a server second: last mtime %d->%d",
+					write+1, observed.ModTime, after.ModTime)
+			}
+			observed = after
+		}
 
-			err := api.WriteFileIfMatch(a, 1, path, observed.Revision, stale)
-			wantConflict(t, "save over an intervening edit", err)
-			if got := contents(t, a, 1, path); !bytes.Equal(got, intervening) {
-				t.Fatalf("refused save changed the file: %q", got)
-			}
-			if names := listing(t, a, 1, dir); len(names) != 1 {
-				t.Fatalf("refused save left resources behind: %v", names)
-			}
-			return
+		err := api.WriteFileIfMatch(a, 1, path, observed.Revision, stale)
+		wantConflict(t, "save over an intervening edit", err)
+		if got := contents(t, a, 1, path); !bytes.Equal(got, intervening) {
+			t.Fatalf("refused save changed the file: %q", got)
+		}
+		if names := listing(t, a, 1, dir); len(names) != 1 {
+			t.Fatalf("refused save left resources behind: %v", names)
 		}
 	})
 }
