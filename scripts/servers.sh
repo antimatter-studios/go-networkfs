@@ -89,7 +89,14 @@ build_image() {   # $1 = tag, rest = docker build arguments
     if [ "$VERBOSE" = 1 ]; then
         docker build -t "$tag" "$@"
     else
-        docker build -q -t "$tag" "$@" >/dev/null
+        # stderr is captured too: the legacy builder prints a deprecation
+        # notice there even with -q. A failed build shows everything it said.
+        local out status=0
+        out="$(docker build -q -t "$tag" "$@" 2>&1)" || status=$?
+        if [ "$status" -ne 0 ]; then
+            printf '%s\n' "$out" >&2
+            return "$status"
+        fi
     fi
 }
 

@@ -50,7 +50,14 @@ phase_done "servers up"
 if [ "${OUTPUT_BUDGET_VERBOSE:-0}" = 1 ]; then
     docker build -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile .
 else
-    docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . >/dev/null
+    # stderr is captured too: the legacy builder prints a deprecation notice
+    # there even with -q. A failed build shows everything it said.
+    build_status=0
+    build_out="$(docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . 2>&1)" || build_status=$?
+    if [ "$build_status" -ne 0 ]; then
+        printf '%s\n' "$build_out" >&2
+        exit "$build_status"
+    fi
 fi
 phase_done "runner image"
 
