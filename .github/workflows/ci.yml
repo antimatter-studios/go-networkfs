@@ -265,10 +265,11 @@ jobs:
       - name: chore test
         run: chore test
 
-      # Only a run that restored nothing saves: the upload of a warm run's
+      # Only a run that restored nothing, or only a cache of an older hash,
+      # saves: the upload of a warm run's
       # 230MB took 2m32s of the five-minute budget and added nothing.
       - uses: actions/cache/save@v4
-        if: always() && steps.gocache.outputs.cache-matched-key == ''
+        if: always() && (steps.gocache.outputs.cache-matched-key == '' || !contains(steps.gocache.outputs.cache-matched-key, hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile')))
         with:
           path: ${{ runner.temp }}/go-networkfs-cache
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}

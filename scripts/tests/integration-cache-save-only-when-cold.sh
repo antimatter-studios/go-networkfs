@@ -53,5 +53,11 @@ elif [ -z "$hashed_line" ] || [ "$hashed_line" -gt "$broad_line" ]; then
     fail "the hash-specific restore key must come before the os/arch prefix, or an older cache beats an exact match"
 fi
 
+# A CACHE OF AN OLDER HASH MUST BE REPLACED. With the os/arch prefix any cache
+# counts as a hit, so a save gated only on an empty match would never store the
+# new hash's cache and every later run would recompile the difference.
+printf '%s\n' "$save" | grep -qE "^ *if:.*contains\(steps\.${restore_id}\.outputs\.cache-matched-key, *hashFiles" \
+    || fail "the cache save step must also run when the matched key is not of the current hash"
+
 [ "$fails" -eq 0 ] && echo "integration cache save: only when cold, ok"
 exit $((fails > 0))
