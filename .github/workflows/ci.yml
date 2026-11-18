@@ -138,12 +138,21 @@ jobs:
   # to ubuntu-24.04), so the fallback in each runs-on below is the belt to
   # that braces. `integration` is gated too: the vps runners support Docker,
   # and a problem it meets there is fixed, not routed around.
+  #
+  # `ci-ok` IS NOT PICKED. It is the last job to start, it is a few seconds of
+  # jq over `needs`, and a vps reservation lasts two minutes: placed there it
+  # spends a slot other work needs and, having started after every other job,
+  # can find its reservation gone. That is what removed #119 from the merge
+  # queue -- `ci-ok` started 2138s after its reservation lapsed, and a merge
+  # whose only missing check was the aggregate never landed. It runs where
+  # rust-fs-core's aggregate runs: a fixed GitHub runner, where nothing else
+  # competes for the place.
   runners:
     name: runners (which runner each job gets)
     needs: changes
     uses: ./.github/workflows/runner-pick.yml
     with:
-      jobs: lint vulncheck ci-ok${{ needs.changes.outputs.code == 'true' && ' test-ubuntu archives-ubuntu integration' || '' }}
+      jobs: lint vulncheck${{ needs.changes.outputs.code == 'true' && ' test-ubuntu archives-ubuntu integration' || '' }}
 
   test:
     name: test (${{ matrix.os }})
@@ -401,7 +410,7 @@ jobs:
     # is judged without editing this step.
     if: always()
     needs: [runner-changes, changes, runners, test, integration, lint, vulncheck, build-archives]
-    runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['ci-ok'] || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: every gating job must have concluded success
