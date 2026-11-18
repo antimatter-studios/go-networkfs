@@ -220,11 +220,15 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
     timeout-minutes: 5
-    env:
-      GO_BUILD_CACHE: ${{ runner.temp }}/go-networkfs-cache/build
-      GO_MODULE_CACHE: ${{ runner.temp }}/go-networkfs-cache/modules
     steps:
       - uses: actions/checkout@v4
+
+      # The runner context is not available to a job-level env, so the cache
+      # locations are exported from a step.
+      - name: Go cache locations
+        run: |
+          echo "GO_BUILD_CACHE=$RUNNER_TEMP/go-networkfs-cache/build" >> "$GITHUB_ENV"
+          echo "GO_MODULE_CACHE=$RUNNER_TEMP/go-networkfs-cache/modules" >> "$GITHUB_ENV"
 
       - uses: actions/cache@v4
         with:
