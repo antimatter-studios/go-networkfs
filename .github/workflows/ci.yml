@@ -239,8 +239,11 @@ jobs:
         with:
           path: ${{ runner.temp }}/go-networkfs-cache
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
+          # The bare prefix comes last: a changed hash restores the newest older
+          # cache instead of compiling everything inside the job's time budget.
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-
+            ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-
 
       # Everything runs inside containers: eleven servers for the drivers that
       # need one, and a runner carrying the Go toolchain, a C compiler and
