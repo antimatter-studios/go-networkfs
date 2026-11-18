@@ -16,8 +16,15 @@ package webdav
 // So a server that offers MD5-sess cannot be mounted, and a strict server can
 // refuse every request. newAuthorizer is NewAutoAuth with the same three
 // schemes in the same order, and this file's Digest authenticator in place of
-// gowebdav's. The digest uri is still the path gowebdav hands an
-// authenticator; signing for the request URI on the wire is #99's.
+// gowebdav's.
+//
+// Each answer is signed for the request URI the request goes out with, not
+// the path gowebdav hands an authenticator (#107): the two differ for a mount
+// whose url holds a path, and for a name that needs percent-encoding. A
+// request re-sent to another URI -- a collection's slash-terminated URL, after
+// the server's redirect -- is signed again on the wire by digestRequestURI,
+// which finds the session the answer came from in the mount's digestSessions
+// and answers under the same session key with the next nonce count.
 
 import (
 	"crypto/md5"
@@ -32,13 +39,19 @@ import (
 )
 
 // newAuthorizer returns the authorizer every request of a mount goes through.
-func newAuthorizer(user, password string) gowebdav.Authorizer {
+// Every Digest session it negotiates is remembered in sessions, so a request
+// re-sent to another URI can be answered under it again.
+func newAuthorizer(user, password string, sessions *digestSessions) gowebdav.Authorizer {
 	authorizer := gowebdav.NewEmptyAuth()
 	authorizer.AddAuthenticator("basic", func(*http.Client, *http.Response, string) (gowebdav.Authenticator, error) {
 		return &basicAuth{user: user, password: password}, nil
 	})
 	authorizer.AddAuthenticator("digest", func(_ *http.Client, rs *http.Response, _ string) (gowebdav.Authenticator, error) {
-		return newDigestAuth(user, password, rs.Header.Get("Www-Authenticate"))
+		auth, err := newDigestAuth(user, password, rs.Header.Get("Www-Authenticate"))
+		if err == nil {
+			sessions.remember(auth.(*digestAuth))
+		}
+		return auth, err
 	})
 	authorizer.AddAuthenticator("passport1.4", func(c *http.Client, rs *http.Response, _ string) (gowebdav.Authenticator, error) {
 		return gowebdav.NewPassportAuth(c, user, password, rs.Request.URL.String(), &rs.Header)
@@ -138,14 +151,23 @@ func newDigestAuth(user, password, header string) (gowebdav.Authenticator, error
 	return &digestAuth{user: user, session: s}, nil
 }
 
-func (d *digestAuth) Authorize(_ *http.Client, rq *http.Request, path string) error {
+// Authorize signs rq for the request URI it goes out with; path, the name
+// gowebdav asked for relative to the mount's url, is not that URI.
+func (d *digestAuth) Authorize(_ *http.Client, rq *http.Request, _ string) error {
+	rq.Header.Set("Authorization", d.answer(rq.Method, rq.URL.RequestURI()))
+	return nil
+}
+
+// answer is the Authorization for method on uri under the session, with the
+// session's next nonce count.
+func (d *digestAuth) answer(method, uri string) string {
 	s := d.session
-	ha2 := md5Hex(rq.Method + ":" + path)
+	ha2 := md5Hex(method + ":" + uri)
 	fields := []string{
 		"username=" + quote(d.user),
 		"realm=" + quote(s.realm),
 		"nonce=" + quote(s.nonce),
-		"uri=" + quote(path),
+		"uri=" + quote(uri),
 	}
 	if s.algorithm != "" {
 		fields = append(fields, "algorithm="+s.algorithm)
@@ -165,8 +187,39 @@ func (d *digestAuth) Authorize(_ *http.Client, rq *http.Request, path string) er
 	if s.opaque != "" {
 		fields = append(fields, "opaque="+quote(s.opaque))
 	}
-	rq.Header.Set("Authorization", "Digest "+strings.Join(fields, ", "))
-	return nil
+	return "Digest " + strings.Join(fields, ", ")
+}
+
+// digestSessions holds the Digest session a mount's authorizer negotiated
+// last, so a request re-sent to another URI is answered under that session
+// again: the same session key, and the next nonce count rather than the one
+// already sent (RFC 7616 3.4, which counts every request sent with a nonce).
+// Only the latest is kept; an answer under an older one is re-signed without
+// it (signDigestFor).
+type digestSessions struct {
+	latest atomic.Pointer[digestAuth]
+}
+
+func (r *digestSessions) remember(d *digestAuth) { r.latest.Store(d) }
+
+// resign returns authorization answered afresh for method on uri when it is
+// a Digest answer of the latest session signed for another URI, and whether
+// it was.
+func (r *digestSessions) resign(authorization, method, uri string) (string, bool) {
+	d := r.latest.Load()
+	scheme, rest, _ := strings.Cut(authorization, " ")
+	if d == nil || !strings.EqualFold(scheme, "Digest") {
+		return authorization, false
+	}
+	value := map[string]string{}
+	for _, p := range digestAuthParams(rest) {
+		value[p.key] = p.value
+	}
+	if value["uri"] == uri || value["username"] != d.user ||
+		value["nonce"] != d.session.nonce || value["cnonce"] != d.session.cnonce {
+		return authorization, false
+	}
+	return d.answer(method, uri), true
 }
 
 // Verify asks for a fresh challenge when the server calls the nonce stale,
