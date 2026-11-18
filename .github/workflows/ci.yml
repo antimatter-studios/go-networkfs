@@ -235,6 +235,7 @@ jobs:
       # cold too and never fits. The key carries the run id so a later run
       # replaces an earlier, smaller cache instead of finding it immutable.
       - uses: actions/cache/restore@v4
+        id: gocache
         with:
           path: ${{ runner.temp }}/go-networkfs-cache
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
@@ -261,8 +262,10 @@ jobs:
       - name: chore test
         run: chore test
 
+      # Only a run that restored nothing saves: the upload of a warm run's
+      # 230MB took 2m32s of the five-minute budget and added nothing.
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && steps.gocache.outputs.cache-matched-key == ''
         with:
           path: ${{ runner.temp }}/go-networkfs-cache
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
