@@ -64,10 +64,89 @@ FAKE_BUILD_EXIT=27 bash "$sandbox/repo/scripts/docker-suite.sh" >/dev/null || st
 [ "$status" -eq 27 ] || fail "a failed build preserves its exit status"
 [ "$(cat "$FAKE_SERVERS_LOG")" = "$(printf 'up\ndown')" ] \
     || fail "a failed build tears its servers down"
-grep -qx 'COPY test/mockapi ./test/mockapi' "$ROOT/.github/docker/mockapi/Dockerfile" \
-    || fail "the mock server image copies only its own source"
-if grep -qE '^COPY \. \.$|^RUN go mod download$' "$ROOT/.github/docker/mockapi/Dockerfile"; then
-    fail "the standard-library-only mock server neither downloads unrelated dependencies nor rebuilds for unrelated source"
+# --- The mock server compiles against the Go cache CI restores. --------------
+#
+# A Dockerfile stage starts with an empty cache on every runner, so each run
+# compiled the standard library again, on the slowest path of `servers.sh up`.
+dockerfile="$ROOT/.github/docker/mockapi/Dockerfile"
+if grep -qiE '^FROM golang|go build' "$dockerfile"; then
+    fail "the mock server image holds no compile stage, which could not reach the Go cache"
+fi
+runner_base="$(sed -n 's/^FROM //p' "$ROOT/.github/docker/testrunner/Dockerfile" | head -1)"
+compiler="$(env -i bash -c ". '$ROOT/scripts/test-env.sh'; printf '%s' \"\${MOCK_BUILD_IMAGE:-}\"" 2>/dev/null)"
+[ "$compiler" = "$runner_base" ] \
+    || fail "the mock server compiles in the runner's base image, pulled once ('$compiler', '$runner_base')"
+first_two="$(env -i bash -c "eval \"\$(grep '^ALL_SERVERS=' '$ROOT/scripts/servers.sh')\"; set -- \$ALL_SERVERS; printf '%s %s' \"\$1\" \"\$2\"" 2>/dev/null)"
+[ "$first_two" = "mockapi sabredav" ] \
+    || fail "the two slowest servers take the first slots, not '$first_two'"
+
+mkdir -p "$sandbox/mock-bin"
+cat > "$sandbox/mock-bin/docker" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_MOCK_LOG"
+case "$1" in
+    image) exit 0 ;;
+    build)
+        for last; do :; done
+        cp "$last/mockapi" "$FAKE_MOCK_CONTEXT" 2>/dev/null
+        ls -l "$last/mockapi" | cut -c4 > "$FAKE_MOCK_CONTEXT.mode"
+        exit 0
+        ;;
+    run)
+        case "$*" in
+            *"go build"*)
+                if [ -n "${FAKE_COMPILE_FAILS:-}" ]; then
+                    echo "compile step failed" >&2
+                    exit 7
+                fi
+                printf 'compiled binary'
+                ;;
+        esac
+        exit 0
+        ;;
+esac
+SH
+chmod +x "$sandbox/mock-bin/docker"
+export FAKE_MOCK_LOG="$sandbox/mock-log" FAKE_MOCK_CONTEXT="$sandbox/mock-context"
+
+# up_mockapi and what it calls, as servers.sh defines them; only the container
+# lifecycle around the build is stubbed.
+run_up_mockapi() {
+    : > "$FAKE_MOCK_LOG"
+    rm -f "$FAKE_MOCK_CONTEXT" "$FAKE_MOCK_CONTEXT.mode"
+    (
+        set -e
+        PATH="$sandbox/mock-bin:$PATH"
+        REPO="$ROOT" VERBOSE=0
+        . "$ROOT/scripts/test-env.sh"
+        eval "$(sed -n '/^build_image() {/,/^}/p; /^ensure_image() {/,/^}/p; /^compile_mockapi() {/,/^}/p; /^up_mockapi() {/,/^}/p' "$ROOT/scripts/servers.sh")"
+        rm_container() { :; }
+        wait_for_port() { :; }
+        up_mockapi
+    ) 2>&1
+}
+
+out="$(GO_BUILD_CACHE="$sandbox/ci cache/build" run_up_mockapi)" \
+    || fail "the mock server comes up from a compiled binary: $out"
+compile="$(grep -F 'go build' "$FAKE_MOCK_LOG" || true)"
+case "$compile" in
+    *"$sandbox/ci cache/build:/go/build-cache"*) ;;
+    *) fail "the mock server compiles against the restored build cache: $compile" ;;
+esac
+case "$compile" in *GOCACHE=/go/build-cache*) ;; *) fail "Go uses that cache for the mock server" ;; esac
+case "$compile" in *CGO_ENABLED=0*) ;; *) fail "the mock server stays a static binary" ;; esac
+case "$compile" in *./test/mockapi*) ;; *) fail "only the mock server is compiled" ;; esac
+[ "$(cat "$FAKE_MOCK_CONTEXT" 2>/dev/null)" = "compiled binary" ] \
+    || fail "the image is built from the binary that was compiled"
+[ "$(cat "$FAKE_MOCK_CONTEXT.mode" 2>/dev/null)" = x ] \
+    || fail "the compiled binary is executable in the image"
+
+status=0
+out="$(FAKE_COMPILE_FAILS=1 run_up_mockapi)" || status=$?
+[ "$status" -ne 0 ] || fail "a failed compile fails the mock server"
+case "$out" in *"compile step failed"*) ;; *) fail "a failed compile shows why" ;; esac
+if grep -q '^build ' "$FAKE_MOCK_LOG"; then
+    fail "a failed compile builds no image"
 fi
 
 [ "$failures" -eq 0 ] || exit 1

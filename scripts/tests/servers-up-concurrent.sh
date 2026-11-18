@@ -132,6 +132,8 @@ case "$1" in
         exit 0
         ;;
     run)
+        # The mock server's compile is a throwaway container, not a server.
+        case " $* " in *" --name "*) ;; *) exit 0 ;; esac
         call "run $*"
         name=""
         for arg in "$@"; do
