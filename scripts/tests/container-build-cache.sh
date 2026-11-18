@@ -30,15 +30,23 @@ fail() { printf '  FAIL  %s\n' "$1"; failures=$((failures + 1)); }
 
 for verbose in 0 1; do
     : > "$FAKE_SERVERS_LOG"
+    : > "$FAKE_BUILDER_ENV"
     DOCKER_BUILDKIT=0 OUTPUT_BUDGET_VERBOSE="$verbose" \
         bash "$sandbox/repo/scripts/docker-suite.sh"
-    [ "$(cat "$FAKE_BUILDER_ENV")" = 1 ] || fail "container builds use BuildKit, including when the runner disables it"
+    [ "$(cat "$FAKE_BUILDER_ENV")" = 0 ] \
+        || fail "a container build keeps the builder the runner selected (verbose=$verbose)"
     grep -qx 'go-networkfs-gobuild:/go/build-cache' "$FAKE_DOCKER_LOG" \
         || fail "the runner retains its compilation cache between suites"
     grep -qx 'GOCACHE=/go/build-cache' "$FAKE_DOCKER_LOG" \
         || fail "Go uses the retained compilation cache"
     [ "$(cat "$FAKE_SERVERS_LOG")" = "$(printf 'up\ndown')" ] \
         || fail "the successful suite tears its servers down"
+
+    : > "$FAKE_BUILDER_ENV"
+    env -u DOCKER_BUILDKIT OUTPUT_BUDGET_VERBOSE="$verbose" \
+        bash "$sandbox/repo/scripts/docker-suite.sh"
+    [ "$(cat "$FAKE_BUILDER_ENV")" = unset ] \
+        || fail "a container build selects no builder when the runner selects none (verbose=$verbose)"
 done
 
 GO_BUILD_CACHE="$sandbox/ci cache/build" GO_MODULE_CACHE="$sandbox/ci cache/modules" \
