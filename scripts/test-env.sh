@@ -180,6 +180,10 @@ PROXY_CONTAINER="${PROXY_CONTAINER:-go-networkfs-squid}"
 MOCK_PORT="${MOCK_PORT:-8081}"
 MOCK_IMAGE="${MOCK_IMAGE:-go-networkfs-mockapi:test}"
 MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
+# It compiles in the runner image's base, so the large pull is paid once, and
+# against the Go build cache the runner uses, which CI restores between runs.
+MOCK_BUILD_IMAGE="${MOCK_BUILD_IMAGE:-golang:1.26-bookworm}"
+GO_BUILD_CACHE="${GO_BUILD_CACHE:-go-networkfs-gobuild}"
 
 # WHAT A TAGGED GO TEST AND THE C HARNESSES READ, exported under the names the
 # tests use rather than the ones this file uses. One function, called by

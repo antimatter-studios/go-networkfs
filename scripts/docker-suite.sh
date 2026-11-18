@@ -75,7 +75,7 @@ phase_done "runner image"
 # run in here, where nothing about the outer runner is visible unless it is
 # passed in. Empty on a developer machine, which is the laptop case.
 module_cache="${GO_MODULE_CACHE:-go-networkfs-gomod}"
-build_cache="${GO_BUILD_CACHE:-go-networkfs-gobuild}"
+build_cache="$GO_BUILD_CACHE"
 for cache in "$module_cache" "$build_cache"; do
     case "$cache" in /*) mkdir -p "$cache" ;; esac
 done

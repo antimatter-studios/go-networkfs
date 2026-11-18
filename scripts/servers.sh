@@ -45,7 +45,11 @@ cd "$REPO"
 
 # `all` means these eleven: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 squid mockapi"
+#
+# THE SLOWEST COME FIRST, because servers start in this order and only a few at
+# a time. mockapi pulls the Go image and sabredav pulls two PHP images; last in
+# the queue, mockapi's pull only began once the quick servers had finished.
+ALL_SERVERS="mockapi sabredav samba s3 ftp sftp webdav lighttpd lighttpd-sess lighttpd-sha256 squid"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -384,10 +388,34 @@ up_squid() {
     echo "  squid    127.0.0.1:$PROXY_PORT (forward proxy onto $TEST_NETWORK)"
 }
 
+# Compile the mock server into directory $1, against the shared Go build cache.
+#
+# NOT IN THE DOCKERFILE: a build stage cannot reach that cache, so every fresh
+# runner compiled the standard library again, and this was the slowest step of
+# `servers.sh up`. The binary leaves on stdout rather than through a mount, so
+# it belongs to the caller and the daemon needs no view of the directory.
+compile_mockapi() {   # $1 = output directory
+    # Every step returns its own failure: the caller tests this function, and
+    # that switches `set -e` off inside it.
+    ensure_image "$MOCK_BUILD_IMAGE" || return
+    case "$GO_BUILD_CACHE" in /*) mkdir -p "$GO_BUILD_CACHE" || return ;; esac
+    docker run --rm -v "$REPO":/src:ro -v "$GO_BUILD_CACHE":/go/build-cache \
+        -e GOCACHE=/go/build-cache -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+        -w /src "$MOCK_BUILD_IMAGE" \
+        sh -c 'go build -o /tmp/mockapi ./test/mockapi && cat /tmp/mockapi' \
+        > "$1/mockapi" || return
+    chmod 0755 "$1/mockapi"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
-    build_image "$MOCK_IMAGE" -f .github/docker/mockapi/Dockerfile .
+    local context status=0
+    context="$(mktemp -d)"
+    { compile_mockapi "$context" \
+        && build_image "$MOCK_IMAGE" -f .github/docker/mockapi/Dockerfile "$context"; } || status=$?
+    rm -rf "$context"
+    [ "$status" -eq 0 ] || return "$status"
     rm_container "$MOCK_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias mockapi \
         --name "$MOCK_CONTAINER" -p "$MOCK_PORT:8081" "$MOCK_IMAGE" >/dev/null
