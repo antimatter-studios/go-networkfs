@@ -2,8 +2,9 @@
 #
 # servers.sh — the test servers, as containers, with one lifecycle.
 #
-#   servers.sh up   [NAME...]   start them (default: all), wait until each is
-#                               answering, and print one line per server
+#   servers.sh up   [NAME...]   start them (default: all), a few at a time, wait
+#                               until each is answering, and print one line per
+#                               server in the order named
 #   servers.sh down [NAME...]   remove them (default: all, and the network)
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
@@ -54,6 +55,11 @@ KNOWN_SERVERS="$ALL_SERVERS s3-native"
 . "$REPO/scripts/test-env.sh"
 
 VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}"
+
+# How many servers are brought up at once. A limit rather than all of them,
+# because every server's readiness wait starts its clock while the others are
+# still building on the same machine.
+SERVERS_UP_JOBS="${SERVERS_UP_JOBS:-4}"
 
 die() { echo "servers.sh: $*" >&2; exit 1; }
 
@@ -420,6 +426,47 @@ check_names() {
     done
 }
 
+# Bring the named servers up side by side.
+#
+# ONE AT A TIME THIS TOOK 162s AND 185s of a five-minute CI job on a self-hosted
+# runner, and the suite was cancelled while passing. The servers share nothing
+# but the network, which exists before this is called: each has its own image,
+# container and port.
+#
+# EACH SERVER'S OUTPUT IS HELD BACK and printed in the order named, so the report
+# reads the same however the servers happen to finish, and two servers' failures
+# cannot interleave. Every server is waited for and every failure reported; any
+# one of them fails the command.
+#
+# POLLED, NOT `wait -n`: macOS ships bash 3.2, which does not have it.
+up_output=""
+up_servers() {   # $@ = server names
+    local name pid status failed=""
+    up_output="$(mktemp -d)"
+    trap 'rm -rf "$up_output"' EXIT
+    # Without this an interrupted run leaves servers starting after the caller's
+    # teardown has already removed them.
+    # shellcheck disable=SC2046  # one word per job is the point
+    trap 'kill $(jobs -p) 2>/dev/null || true; exit 1' INT TERM
+
+    : > "$up_output/pids"
+    for name in "$@"; do
+        while [ "$(jobs -rp | wc -l)" -ge "$SERVERS_UP_JOBS" ]; do sleep 0.1; done
+        ( "up_${name//-/_}" ) >"$up_output/$name.out" 2>"$up_output/$name.err" &
+        printf '%s %s\n' "$name" "$!" >> "$up_output/pids"
+    done
+
+    while read -r name pid; do
+        status=0
+        wait "$pid" || status=$?
+        cat "$up_output/$name.out"
+        cat "$up_output/$name.err" >&2
+        [ "$status" -eq 0 ] || failed="$failed $name"
+    done < "$up_output/pids"
+
+    [ -z "$failed" ] || die "failed to start:$failed"
+}
+
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 
@@ -428,9 +475,12 @@ case "$cmd" in
         names="${*:-$ALL_SERVERS}"
         # shellcheck disable=SC2086  # the words are the point
         check_names $names
+        [[ "$SERVERS_UP_JOBS" =~ ^[1-9][0-9]*$ ]] \
+            || die "SERVERS_UP_JOBS must be a positive whole number, not '$SERVERS_UP_JOBS'"
         # shellcheck disable=SC2086
         if wants_docker $names; then need_docker; network_up; fi
-        for name in $names; do "up_${name//-/_}"; done
+        # shellcheck disable=SC2086
+        up_servers $names
         ;;
 
     down)
@@ -488,7 +538,7 @@ case "$cmd" in
         ;;
 
     ""|-h|--help)
-        sed -n '3,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '3,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         # No command at all is a usage error; --help was asked for.
         if [ -z "$cmd" ]; then exit 2; fi
         ;;
