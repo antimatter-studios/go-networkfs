@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"runtime/debug"
@@ -118,6 +119,11 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 		baseURL = fmt.Sprintf("%s://%s%s", scheme, host, portStr)
 	}
 
+	baseURL, parseErr := canonicalBaseURL(baseURL)
+	if parseErr != nil {
+		return &api.DriverError{Code: 11, Message: "invalid webdav URL: " + parseErr.Error()}
+	}
+
 	d.baseURL = baseURL
 	d.user = user
 	d.pass = pass
@@ -151,6 +157,18 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 
 	d.connected = true
 	return nil
+}
+
+func canonicalBaseURL(baseURL string) (string, error) {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	if parsedURL.Scheme == "http" && parsedURL.Port() == "80" || parsedURL.Scheme == "https" && parsedURL.Port() == "443" {
+		parsedURL.Host = strings.TrimSuffix(parsedURL.Host, ":"+parsedURL.Port())
+		return parsedURL.String(), nil
+	}
+	return baseURL, nil
 }
 
 // Unmount is a no-op; gowebdav holds no persistent connection.

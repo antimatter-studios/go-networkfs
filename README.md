@@ -424,9 +424,15 @@ they were. A server that cannot evaluate an entity tag in an `If` header
 (`golang.org/x/net/webdav` is one) refuses every conditional operation
 with a conflict; it does not perform them unconditionally. A save
 conditioned on a file another client removed is a conflict too, whether
-the server answers `412` or, as sabre/dav does, `404`. A server
-that ignores the header entirely cannot be told apart from one that
-honours it. WebDAV is the only driver that supports these today; every
+the server answers `412` or, as sabre/dav does, `404`. The revision of
+the resource a remove or rename names is also sent as `If-Match` when it
+is a strong tag, because a server may ignore an entity tag in an `If`
+header: lighttpd 1.4.85 does for a directory, and honours `If-Match`
+there. The same lighttpd refuses every condition on a `MOVE`
+destination, so on it a conditional save over an existing file and a
+replacing rename always report a conflict. A server that ignores both
+headers cannot be told apart from one that honours them. WebDAV is the
+only driver that supports these today; every
 other driver returns `3`. In Go, the same operations are
 `api.WriteFileIfMatch`, `api.WriteFileIfMatchRevision`,
 `api.RemoveIfMatch` and `api.RenameIfMatch`, which return

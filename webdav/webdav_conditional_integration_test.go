@@ -8,13 +8,15 @@
 // not this driver, decides whether the condition holds, so these tests run
 // against independent implementations, and every test runs against each of
 // them (integrationServers): Apache httpd's mod_dav, the container
-// scripts/servers.sh starts as `webdav`, and sabre/dav, the one it starts as
-// `sabredav`. One server is one reading of RFC 4918; where it departs from the
-// RFC, the driver's handling of the RFC's own answer goes untested (#91).
+// scripts/servers.sh starts as `webdav`, sabre/dav, the one it starts as
+// `sabredav`, and lighttpd's mod_webdav, the one it starts as `lighttpd`. One
+// server is one reading of RFC 4918; where it departs from the RFC, the
+// driver's handling of the RFC's own answer goes untested (#91, #102).
 //
-// Run with `chore test:webdav`, or by hand with both servers up:
+// Run with `chore test:webdav`, or by hand with the servers up:
 //
 //	WEBDAV_URL=http://127.0.0.1:8080 WEBDAV_SABRE_URL=http://127.0.0.1:8082 \
+//	  WEBDAV_LIGHTTPD_URL=http://127.0.0.1:8084 \
 //	  WEBDAV_USER=testuser WEBDAV_PASS=testpass \
 //	  go test -tags=webdav_integration -run Integration ./webdav/...
 
@@ -42,23 +44,36 @@ type integrationServer struct {
 	// urlVar names the environment variable holding the server's URL. Both
 	// servers take the one account, WEBDAV_USER and WEBDAV_PASS.
 	urlVar string
-	// collectionRevisions: the server reports an entity tag for a collection
-	// and matches one in an If header. Apache does. sabre/dav's filesystem
-	// tree reports none for a collection, and its If evaluation matches an
-	// entity tag only on a file, so a directory has no revision there.
+	// collectionRevisions: the server reports an entity tag for a collection,
+	// so a directory has a revision to condition on. Apache and lighttpd do.
+	// sabre/dav's filesystem tree reports none for a collection, and its If
+	// evaluation matches an entity tag only on a file. lighttpd 1.4.85 reports
+	// one but ignores an entity tag in an If header on a collection, going
+	// ahead with the DELETE or MOVE; it honours If-Match there (#102).
 	collectionRevisions bool
 	// missingParentConflict: a MOVE into a missing parent is answered 409
 	// Conflict, as RFC 4918 (9.9.4) asks. sabre/dav does. Apache 2.4.71
 	// answers 500 -- "Could not rename resource", ENOENT -- which is why
 	// sabre/dav is here (#91).
 	missingParentConflict bool
+	// destinationConditions: a tagged If list naming a MOVE's destination is
+	// evaluated against the destination, so a save or a replacing rename at
+	// the destination's current revision goes through. Apache and sabre/dav
+	// do. lighttpd 1.4.85 answers 412 to every such MOVE, matching tag or
+	// not: it fails closed, so a conditional save over an existing file and a
+	// replacing rename cannot succeed there (#102).
+	destinationConditions bool
 }
 
 var (
-	apacheServer = integrationServer{name: "apache", urlVar: "WEBDAV_URL", collectionRevisions: true}
-	sabreServer  = integrationServer{name: "sabredav", urlVar: "WEBDAV_SABRE_URL", missingParentConflict: true}
+	apacheServer = integrationServer{name: "apache", urlVar: "WEBDAV_URL",
+		collectionRevisions: true, destinationConditions: true}
+	sabreServer = integrationServer{name: "sabredav", urlVar: "WEBDAV_SABRE_URL",
+		missingParentConflict: true, destinationConditions: true}
+	lighttpdServer = integrationServer{name: "lighttpd", urlVar: "WEBDAV_LIGHTTPD_URL",
+		collectionRevisions: true, missingParentConflict: true}
 
-	integrationServers = []integrationServer{apacheServer, sabreServer}
+	integrationServers = []integrationServer{apacheServer, sabreServer, lighttpdServer}
 )
 
 // eachServer runs test once against every integration server, as a subtest
@@ -179,6 +194,23 @@ func listing(t *testing.T, d *WebDAVDriver, id int, dir string) []string {
 	return names
 }
 
+// destinationConditionHolds checks a conditional operation whose condition on
+// the MOVE destination holds. A server that evaluates destination conditions
+// must perform it; one that refuses every one (integrationServer's
+// destinationConditions) must refuse it, and the caller then stops, since
+// nothing it goes on to check was done.
+func destinationConditionHolds(t *testing.T, server integrationServer, what string, err error) bool {
+	t.Helper()
+	if server.destinationConditions {
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		return true
+	}
+	wantConflict(t, what+", on a server that refuses every destination condition", err)
+	return false
+}
+
 func wantConflict(t *testing.T, what string, err error) {
 	t.Helper()
 	if !errors.Is(err, api.ErrPreconditionFailed) {
@@ -235,8 +267,12 @@ func TestIntegrationConditionalSave(t *testing.T) {
 		// A save conditioned on the current revision goes through, and so does
 		// the next one conditioned on the revision after it.
 		observed := observe(t, a, 1, path)
-		if err := api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("second")); err != nil {
-			t.Fatalf("save at the current revision: %v", err)
+		if !destinationConditionHolds(t, server, "save at the current revision",
+			api.WriteFileIfMatch(a, 1, path, observed.Revision, []byte("second"))) {
+			if got := contents(t, b, 2, path); string(got) != "first" {
+				t.Fatalf("refused save changed the file: %q", got)
+			}
+			return
 		}
 		if got := contents(t, b, 2, path); string(got) != "second" {
 			t.Fatalf("client B reads %q after A's save", got)
@@ -381,8 +417,12 @@ func TestIntegrationConditionalRename(t *testing.T) {
 
 		// At current revisions the replacing rename goes through.
 		observedFrom, observedTo = observe(t, a, 1, from), observe(t, a, 1, to)
-		if err := a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision); err != nil {
-			t.Fatalf("replacing rename at current revisions: %v", err)
+		if !destinationConditionHolds(t, server, "replacing rename at current revisions",
+			a.RenameIfMatch(1, from, to, observedFrom.Revision, observedTo.Revision)) {
+			if got := contents(t, a, 1, to); string(got) != "B's final, revised" {
+				t.Fatalf("refused rename replaced the destination: %q", got)
+			}
+			return
 		}
 		absent(t, b, 2, from)
 		if got := contents(t, b, 2, to); string(got) != "draft edited by B" {
@@ -462,8 +502,8 @@ func TestIntegrationConditionalSaveReturnsItsRevision(t *testing.T) {
 
 		// The returned revision is the file's: the server accepts a save at it.
 		saved, err := api.WriteFileIfMatchRevision(a, 1, path, created, []byte("saved by A"))
-		if err != nil {
-			t.Fatalf("save at the revision the create returned: %v", err)
+		if !destinationConditionHolds(t, server, "save at the revision the create returned", err) {
+			return
 		}
 		if saved == "" {
 			t.Fatal("a conditional save returned no revision")
@@ -529,6 +569,46 @@ func TestIntegrationConditionalSaveIntoARemovedDirectory(t *testing.T) {
 		absent(t, b, 2, sub)
 		if names := listing(t, b, 2, dir); len(names) != 0 {
 			t.Fatalf("refused saves changed the namespace: %v", names)
+		}
+	})
+}
+
+// A directory's revision guards it like a file's (#102). Client B adds a file
+// inside a directory client A observed, which changes the directory's
+// revision on a server that reports one; A's remove and rename at the old
+// revision are then refused, and the directory and B's file stay where they
+// were. A server that reports no collection revision gives A nothing to
+// condition on.
+func TestIntegrationStaleDirectoryRevisionConflicts(t *testing.T) {
+	eachServer(t, func(t *testing.T, server integrationServer) {
+		a, b, dir := integrationClients(t, server)
+		sub := dir + "/sub"
+		if err := a.Mkdir(1, sub); err != nil {
+			t.Fatal(err)
+		}
+		if !server.collectionRevisions {
+			if info := stat(t, a, 1, sub); info.Revision != "" {
+				t.Fatalf("%s reported revision %q for a directory; integrationServers says it reports none", server.name, info.Revision)
+			}
+			return
+		}
+		observed := observe(t, a, 1, sub)
+		time.Sleep(1100 * time.Millisecond) // a whole second, so a time-based tag must move
+		save(t, b, 2, sub+"/added-by-b.txt", []byte("B's file"))
+		if now := observe(t, b, 2, sub); now.Revision == observed.Revision {
+			t.Fatalf("%s left the directory at revision %q after B added a file to it", server.name, now.Revision)
+		}
+
+		wantConflict(t, "remove a directory after B changed it", a.RemoveIfMatch(1, sub, observed.Revision))
+		if got := contents(t, b, 2, sub+"/added-by-b.txt"); string(got) != "B's file" {
+			t.Fatalf("refused remove changed B's file: %q", got)
+		}
+
+		moved := dir + "/moved"
+		wantConflict(t, "rename a directory after B changed it", a.RenameIfMatch(1, sub, moved, observed.Revision, ""))
+		absent(t, a, 1, moved)
+		if got := contents(t, b, 2, sub+"/added-by-b.txt"); string(got) != "B's file" {
+			t.Fatalf("refused rename moved B's file: %q", got)
 		}
 	})
 }

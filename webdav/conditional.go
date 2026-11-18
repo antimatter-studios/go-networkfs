@@ -22,6 +22,12 @@ package webdav
 // one -- answers 412 to every such list, so a server that cannot enforce the
 // condition fails the operation rather than performing it unconditionally.
 //
+// AND If-Match AS WELL, for the request URI only. A server can evaluate the
+// If header for some resources and not others: lighttpd 1.4.85 ignores an
+// entity tag in it for a collection and performs the DELETE or MOVE, while it
+// honours If-Match on the same request (#102). So the request URI's own
+// revision goes out in both headers when it is a strong tag.
+//
 // "Absent" -- an empty revision for a save's target or a rename's destination
 // -- is Overwrite: F on the MOVE, which RFC 4918 requires the server to refuse
 // with 412 when the destination exists.
@@ -126,10 +132,20 @@ func (s *conditionalTransport) RoundTrip(request *http.Request) (*http.Response,
 // shares the mount's authorizer and counting transport, and is used by one
 // goroutine and then dropped, so the header is never seen by any other
 // request.
-func (d *WebDAVDriver) conditionalClient(method string, conditions ...condition) (*gowebdav.Client, *conditionalTransport) {
+//
+// ifMatch, when not empty, is the request URI's own revision, sent as If-Match
+// as well as in the If header: a server may ignore an entity tag in an If
+// header -- lighttpd 1.4.85 does for a collection, and performs the DELETE or
+// MOVE -- while it honours If-Match (#102). If-Match compares strongly, so
+// only a strong tag is sent there; a weak one, which could never match it, is
+// left to the If header.
+func (d *WebDAVDriver) conditionalClient(method, ifMatch string, conditions ...condition) (*gowebdav.Client, *conditionalTransport) {
 	recorder := &conditionalTransport{base: d.transport, method: method}
 	client := gowebdav.NewAuthClient(d.baseURL, d.auth)
 	client.SetTransport(recorder)
+	if ifMatch != "" && !strings.HasPrefix(ifMatch, "W/") {
+		client.SetHeader("If-Match", ifMatch)
+	}
 	if len(conditions) > 0 {
 		lists := make([]string, 0, len(conditions))
 		for _, c := range conditions {
@@ -170,13 +186,16 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 	if newRevision != "" {
 		conditions = append(conditions, condition{fullNew, newRevision})
 	}
-	client, recorder := d.conditionalClient("MOVE", conditions...)
+	client, recorder := d.conditionalClient("MOVE", oldRevision, conditions...)
 	err := client.Rename(fullOld, fullNew, newRevision != "")
 	if recorder.status == http.StatusConflict {
 		return parentConflict(fullNew)
 	}
 	if recorder.status == http.StatusNotFound && oldRevision == "" && newRevision != "" && d.exists(fullOld) {
 		return fmt.Errorf("%w (HTTP 404: %s, which the condition names, does not exist)", api.ErrPreconditionFailed, fullNew)
+	}
+	if err != nil && successfulMove(recorder.status) {
+		return nil
 	}
 	return conditionResult(err, recorder, oldRevision != "")
 }
@@ -191,7 +210,7 @@ func (d *WebDAVDriver) move(fullOld, fullNew, oldRevision, newRevision string) e
 // MOVE is sent, and a create-only save would then succeed inside it (#90).
 // So the PUT goes through a client that sends it and nothing after it.
 func (d *WebDAVDriver) uploadIntoExistingDirectory(fullTemporary string, data []byte) error {
-	client, recorder := d.conditionalClient(http.MethodPut)
+	client, recorder := d.conditionalClient(http.MethodPut, "")
 	err := client.Write(fullTemporary, data, 0644)
 	if recorder.status == http.StatusNotFound || recorder.status == http.StatusConflict {
 		return fmt.Errorf("webdav: PUT %s: %w: its parent collection does not exist (HTTP %d)",
@@ -354,7 +373,7 @@ func (d *WebDAVDriver) RemoveIfMatch(mountID int, path, revision string) (err er
 		return err
 	}
 	full := d.fullPath(path)
-	client, recorder := d.conditionalClient(http.MethodDelete, condition{full, revision})
+	client, recorder := d.conditionalClient(http.MethodDelete, revision, condition{full, revision})
 	err = client.Remove(full)
 	return conditionResult(err, recorder, true)
 }

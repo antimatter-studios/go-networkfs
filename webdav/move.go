@@ -75,6 +75,13 @@ func parentConflict(fullNew string) error {
 	return fmt.Errorf("webdav: MOVE to %s: %w: its parent collection does not exist (HTTP 409)", fullNew, api.ErrNotFound)
 }
 
+// successfulMove reports a MOVE answer gowebdav counts as a failure although
+// it is success. gowebdav accepts 201 and 204, the two RFC 4918 lists, but any
+// 2xx is success in HTTP, and lighttpd answers 200 to a MOVE of a collection.
+func successfulMove(status int) bool {
+	return status >= 200 && status < 300
+}
+
 // rename moves fullOld to fullNew, replacing whatever is there, through a
 // client of its own whose transport bounds gowebdav's retry. That client
 // shares the mount's authorizer and counting transport, and is used by one
@@ -86,6 +93,9 @@ func (d *WebDAVDriver) rename(fullOld, fullNew string) error {
 	err := client.Rename(fullOld, fullNew, true)
 	if err != nil && bounded.status == http.StatusConflict {
 		return parentConflict(fullNew)
+	}
+	if err != nil && successfulMove(bounded.status) {
+		return nil
 	}
 	return err
 }
