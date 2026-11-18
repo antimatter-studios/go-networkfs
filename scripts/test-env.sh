@@ -28,6 +28,7 @@ DAV_ADDR="${DAV_ADDR:-127.0.0.1}"
 DAV_SABRE_ADDR="${DAV_SABRE_ADDR:-127.0.0.1}"
 DAV_LIGHTTPD_ADDR="${DAV_LIGHTTPD_ADDR:-127.0.0.1}"
 DAV_LIGHTTPD_SESS_ADDR="${DAV_LIGHTTPD_SESS_ADDR:-127.0.0.1}"
+DAV_LIGHTTPD_SHA256_ADDR="${DAV_LIGHTTPD_SHA256_ADDR:-127.0.0.1}"
 MOCK_ADDR="${MOCK_ADDR:-127.0.0.1}"
 
 # The servers join this network so the runner container can reach them by name.
@@ -150,6 +151,16 @@ DAV_LIGHTTPD_SESS_PORT="${DAV_LIGHTTPD_SESS_PORT:-8085}"
 DAV_LIGHTTPD_SESS_IMAGE="${DAV_LIGHTTPD_SESS_IMAGE:-go-networkfs-lighttpd-sess:test}"
 DAV_LIGHTTPD_SESS_CONTAINER="${DAV_LIGHTTPD_SESS_CONTAINER:-go-networkfs-lighttpd-sess}"
 
+# lighttpd ONCE MORE, BUILT FROM .github/docker/lighttpd-sha256, with the same
+# account behind HTTP Digest auth that offers algorithm=SHA-256: on one
+# listener alone, on the other before MD5, as two challenges (#108). Apache
+# offers MD5 alone. The Digest tests alone use it. It listens on 8080 and 8081
+# inside the container because it runs unprivileged.
+DAV_LIGHTTPD_SHA256_PORT="${DAV_LIGHTTPD_SHA256_PORT:-8086}"
+DAV_LIGHTTPD_SHA256_MD5_PORT="${DAV_LIGHTTPD_SHA256_MD5_PORT:-8087}"
+DAV_LIGHTTPD_SHA256_IMAGE="${DAV_LIGHTTPD_SHA256_IMAGE:-go-networkfs-lighttpd-sha256:test}"
+DAV_LIGHTTPD_SHA256_CONTAINER="${DAV_LIGHTTPD_SHA256_CONTAINER:-go-networkfs-lighttpd-sha256}"
+
 # Dropbox, Google Drive and OneDrive cannot be run locally the way Samba can.
 # One mock API stands in for all three, built from test/mockapi in this repo.
 MOCK_PORT="${MOCK_PORT:-8081}"
@@ -167,7 +178,7 @@ MOCK_CONTAINER="${MOCK_CONTAINER:-go-networkfs-mockapi}"
 # SUITE_ENV_VARS is the list, so `servers.sh env` prints exactly this and a
 # guard (scripts/tests/suite-env.sh) can hold the two to each other.
 # shellcheck disable=SC2034  # read by servers.sh, which sources this file
-SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_DIGEST_URL WEBDAV_SABRE_URL WEBDAV_LIGHTTPD_URL WEBDAV_LIGHTTPD_SESS_URL WEBDAV_USER WEBDAV_PASS"
+SUITE_ENV_VARS="SMB_HOST SMB_PORT SMB_SHARE SMB_USER SMB_PASS S3_ENDPOINT S3_BUCKET S3_SECURE S3_ACCESS_KEY S3_SECRET_KEY FTP_HOST FTP_PORT FTP_USER FTP_PASS WEBDAV_URL WEBDAV_DIGEST_URL WEBDAV_SABRE_URL WEBDAV_LIGHTTPD_URL WEBDAV_LIGHTTPD_SESS_URL WEBDAV_LIGHTTPD_SHA256_URL WEBDAV_LIGHTTPD_SHA256_MD5_URL WEBDAV_USER WEBDAV_PASS"
 export_suite_env() {
     export SMB_HOST="$SMB_ADDR" SMB_PORT SMB_SHARE SMB_USER SMB_PASS
     export S3_ENDPOINT="$S3_ADDR:$S3_PORT" S3_BUCKET S3_SECURE=false
@@ -178,6 +189,8 @@ export_suite_env() {
     export WEBDAV_SABRE_URL="http://$DAV_SABRE_ADDR:$DAV_SABRE_PORT"
     export WEBDAV_LIGHTTPD_URL="http://$DAV_LIGHTTPD_ADDR:$DAV_LIGHTTPD_PORT"
     export WEBDAV_LIGHTTPD_SESS_URL="http://$DAV_LIGHTTPD_SESS_ADDR:$DAV_LIGHTTPD_SESS_PORT"
+    export WEBDAV_LIGHTTPD_SHA256_URL="http://$DAV_LIGHTTPD_SHA256_ADDR:$DAV_LIGHTTPD_SHA256_PORT"
+    export WEBDAV_LIGHTTPD_SHA256_MD5_URL="http://$DAV_LIGHTTPD_SHA256_ADDR:$DAV_LIGHTTPD_SHA256_MD5_PORT"
 }
 
 # Every driver whose integration tests are behind a build tag and need a

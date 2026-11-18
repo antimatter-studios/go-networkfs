@@ -14,7 +14,9 @@ package webdav
 //     eight hexadecimal digits counting the requests sent with the nonce.
 //
 // So a server that offers MD5-sess cannot be mounted, and a strict server can
-// refuse every request. newAuthorizer is NewAutoAuth with the same three
+// refuse every request. It also answers SHA-256 and SHA-512-256 with an empty
+// H(A1); this authenticator computes every algorithm RFC 7616 defines
+// (digest_algorithm.go, #108). newAuthorizer is NewAutoAuth with the same three
 // schemes in the same order, and this file's Digest authenticator in place of
 // gowebdav's.
 //
@@ -27,7 +29,6 @@ package webdav
 // and answers under the same session key with the next nonce count.
 
 import (
-	"crypto/md5"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -89,8 +90,8 @@ type digestSession struct {
 	// qop is "auth" when the challenge offered it, "" when it offered no qop
 	// at all (RFC 2069's answer, without nc).
 	qop string
-	// sess: the algorithm is MD5-sess, so ha1 is a session key.
-	sess bool
+	// hash is the algorithm algorithm names: its H, and whether it is -sess.
+	hash digestAlgorithm
 	// cnonce is the client nonce for the whole session, and ha1 is
 	// H(user:realm:password), or for -sess the session key
 	// H(H(user:realm:password):nonce:cnonce) (RFC 7616 3.4.2).
@@ -104,15 +105,31 @@ type digestAuth struct {
 	session *digestSession
 }
 
-// newDigestAuth answers the Digest challenge in header. An algorithm other
-// than MD5 and MD5-sess, or a qop list without "auth", is refused rather than
-// answered wrongly, so negotiation can fall to another scheme the server
-// offered.
+// newDigestAuth answers a Digest challenge in header. A server that offers
+// several lists them most preferred first (RFC 7616 3.7), so the first one
+// this driver can answer is answered. An algorithm RFC 7616 does not define,
+// or a qop list without "auth", is passed over rather than answered wrongly;
+// when nothing in header can be answered, the error lets negotiation fall to
+// the next header or another scheme the server offered.
 func newDigestAuth(user, password, header string) (gowebdav.Authenticator, error) {
-	params, ok := digestChallengeParams(header)
-	if !ok {
+	challenges := digestChallenges(header)
+	if len(challenges) == 0 {
 		return nil, fmt.Errorf("webdav: no Digest challenge in %q", header)
 	}
+	var refusals []string
+	for _, params := range challenges {
+		s, err := newDigestSession(user, password, params)
+		if err == nil {
+			return &digestAuth{user: user, session: s}, nil
+		}
+		refusals = append(refusals, err.Error())
+	}
+	return nil, fmt.Errorf("webdav: no Digest challenge in %q can be answered: %s", header, strings.Join(refusals, "; "))
+}
+
+// newDigestSession is the session one Digest challenge establishes, or why
+// that challenge cannot be answered.
+func newDigestSession(user, password string, params map[string]string) (*digestSession, error) {
 	s := &digestSession{
 		realm:     params["realm"],
 		nonce:     params["nonce"],
@@ -120,15 +137,13 @@ func newDigestAuth(user, password, header string) (gowebdav.Authenticator, error
 		algorithm: params["algorithm"],
 	}
 	if s.nonce == "" {
-		return nil, fmt.Errorf("webdav: Digest challenge without a nonce: %q", header)
+		return nil, fmt.Errorf("challenge without a nonce")
 	}
-	switch strings.ToLower(s.algorithm) {
-	case "", "md5":
-	case "md5-sess":
-		s.sess = true
-	default:
-		return nil, fmt.Errorf("webdav: Digest algorithm %q is not supported", s.algorithm)
+	hash, ok := digestAlgorithmNamed(s.algorithm)
+	if !ok {
+		return nil, fmt.Errorf("algorithm %q is not supported", s.algorithm)
 	}
+	s.hash = hash
 	if offered, present := params["qop"]; present {
 		for _, q := range strings.Split(offered, ",") {
 			if strings.EqualFold(strings.TrimSpace(q), "auth") {
@@ -136,7 +151,7 @@ func newDigestAuth(user, password, header string) (gowebdav.Authenticator, error
 			}
 		}
 		if s.qop == "" {
-			return nil, fmt.Errorf("webdav: Digest qop %q offers no \"auth\"", offered)
+			return nil, fmt.Errorf("qop %q offers no \"auth\"", offered)
 		}
 	}
 	cnonce := make([]byte, 16)
@@ -144,11 +159,8 @@ func newDigestAuth(user, password, header string) (gowebdav.Authenticator, error
 		return nil, err
 	}
 	s.cnonce = hex.EncodeToString(cnonce)
-	s.ha1 = md5Hex(user + ":" + s.realm + ":" + password)
-	if s.sess {
-		s.ha1 = md5Hex(s.ha1 + ":" + s.nonce + ":" + s.cnonce)
-	}
-	return &digestAuth{user: user, session: s}, nil
+	s.ha1 = hash.ha1(user, s.realm, password, s.nonce, s.cnonce)
+	return s, nil
 }
 
 // Authorize signs rq for the request URI it goes out with; path, the name
@@ -162,7 +174,6 @@ func (d *digestAuth) Authorize(_ *http.Client, rq *http.Request, _ string) error
 // session's next nonce count.
 func (d *digestAuth) answer(method, uri string) string {
 	s := d.session
-	ha2 := md5Hex(method + ":" + uri)
 	fields := []string{
 		"username=" + quote(d.user),
 		"realm=" + quote(s.realm),
@@ -174,13 +185,13 @@ func (d *digestAuth) answer(method, uri string) string {
 	}
 	var response string
 	if s.qop == "" {
-		response = md5Hex(s.ha1 + ":" + s.nonce + ":" + ha2)
-		if s.sess {
+		response = s.hash.response(s.ha1, method, uri, s.nonce, "", "", "")
+		if s.hash.sess {
 			fields = append(fields, "cnonce="+quote(s.cnonce))
 		}
 	} else {
 		nc := fmt.Sprintf("%08x", s.nc.Add(1))
-		response = md5Hex(strings.Join([]string{s.ha1, s.nonce, nc, s.cnonce, s.qop, ha2}, ":"))
+		response = s.hash.response(s.ha1, method, uri, s.nonce, nc, s.cnonce, s.qop)
 		fields = append(fields, "qop="+s.qop, "nc="+nc, "cnonce="+quote(s.cnonce))
 	}
 	fields = append(fields, "response="+quote(response))
@@ -243,12 +254,24 @@ func (d *digestAuth) Close() error { return nil }
 
 func (d *digestAuth) String() string { return "DigestAuth login: " + d.user }
 
-// digestChallengeParams returns the parameters of the Digest challenge in a
-// WWW-Authenticate value, names lower-cased and quoted strings unquoted, and
-// whether there was one. Another scheme's challenge in the same value, before
-// or after it, is ignored.
+// digestChallengeParams returns the parameters of the first Digest challenge
+// in a WWW-Authenticate value, names lower-cased and quoted strings unquoted,
+// and whether there was one. Another scheme's challenge in the same value,
+// before or after it, is ignored.
 func digestChallengeParams(header string) (map[string]string, bool) {
-	var params map[string]string
+	challenges := digestChallenges(header)
+	if len(challenges) == 0 {
+		return nil, false
+	}
+	return challenges[0], true
+}
+
+// digestChallenges returns the parameters of every Digest challenge in a
+// WWW-Authenticate value, in the order given, as digestChallengeParams reads
+// one. One value may hold several challenges (RFC 9110 11.6.1).
+func digestChallenges(header string) []map[string]string {
+	var challenges []map[string]string
+	var params map[string]string // the Digest challenge being read, or nil
 	rest := header
 	for rest != "" {
 		rest = strings.TrimLeft(rest, " \t,")
@@ -259,11 +282,10 @@ func digestChallengeParams(header string) (map[string]string, bool) {
 		rest = strings.TrimLeft(rest[len(name):], " \t")
 		if !strings.HasPrefix(rest, "=") {
 			// A bare token starts a challenge: the scheme.
-			if params != nil {
-				break // the next scheme's challenge
-			}
+			params = nil
 			if strings.EqualFold(name, "Digest") {
 				params = map[string]string{}
+				challenges = append(challenges, params)
 			}
 			continue
 		}
@@ -282,7 +304,7 @@ func digestChallengeParams(header string) (map[string]string, bool) {
 			params[strings.ToLower(name)] = value
 		}
 	}
-	return params, params != nil
+	return challenges
 }
 
 // tokenEnd is the length of the token s starts with (RFC 9110 5.6.2).
@@ -317,9 +339,4 @@ func unquote(s string) (string, string) {
 
 func quote(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
-}
-
-func md5Hex(s string) string {
-	sum := md5.Sum([]byte(s)) //nolint:gosec // HTTP Digest's MD5, the algorithm the server chose.
-	return hex.EncodeToString(sum[:])
 }

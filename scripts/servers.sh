@@ -8,7 +8,7 @@
 #   servers.sh status           what is running
 #   servers.sh env              the environment a suite needs to reach them
 #
-#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess mockapi — or s3-native, the S3
+#   NAME is one of: samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi — or s3-native, the S3
 #   server run as a plain binary with no Docker at all (see below).
 #
 # ONE SERVER HAS TWO SHAPES. stupid-simple-s3 ships as a single static binary
@@ -42,9 +42,9 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
-# `all` means these nine: the containers, on one network, which is what the
+# `all` means these ten: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
-ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess mockapi"
+ALL_SERVERS="samba s3 ftp sftp webdav sabredav lighttpd lighttpd-sess lighttpd-sha256 mockapi"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
@@ -340,6 +340,24 @@ up_lighttpd_sess() {
     echo "  lighttpd-sess 127.0.0.1:$DAV_LIGHTTPD_SESS_PORT (user $DAV_USER, digest MD5-sess)"
 }
 
+# lighttpd once more, built from .github/docker/lighttpd-sha256 with the same
+# account behind HTTP Digest auth offering algorithm=SHA-256, on one listener
+# alone and on the other before MD5. Apache offers MD5 alone, so the driver's
+# SHA-256 answers needed a server of their own to check them (#108).
+up_lighttpd_sha256() {
+    build_image "$DAV_LIGHTTPD_SHA256_IMAGE" .github/docker/lighttpd-sha256
+    rm_container "$DAV_LIGHTTPD_SHA256_CONTAINER"
+    docker run -d --network "$TEST_NETWORK" --network-alias lighttpd-sha256 \
+        --name "$DAV_LIGHTTPD_SHA256_CONTAINER" \
+        -p "$DAV_LIGHTTPD_SHA256_PORT:8080" -p "$DAV_LIGHTTPD_SHA256_MD5_PORT:8081" \
+        -e WEBDAVD_USER="$DAV_USER" -e WEBDAVD_PASS="$DAV_PASS" \
+        "$DAV_LIGHTTPD_SHA256_IMAGE" >/dev/null
+    wait_for_port "$DAV_LIGHTTPD_SHA256_CONTAINER" "$DAV_LIGHTTPD_SHA256_PORT"
+    wait_for_port "$DAV_LIGHTTPD_SHA256_CONTAINER" "$DAV_LIGHTTPD_SHA256_MD5_PORT"
+    echo "  lighttpd-sha256 127.0.0.1:$DAV_LIGHTTPD_SHA256_PORT (user $DAV_USER, digest SHA-256)," \
+         "127.0.0.1:$DAV_LIGHTTPD_SHA256_MD5_PORT (digest SHA-256 then MD5)"
+}
+
 # The stand-in for Dropbox, Google Drive and OneDrive. Built from source in
 # this repository rather than pulled, so it cannot drift from the drivers.
 up_mockapi() {
@@ -359,6 +377,7 @@ down_webdav()  { rm_container "$DAV_CONTAINER"; }
 down_sabredav() { rm_container "$DAV_SABRE_CONTAINER"; }
 down_lighttpd() { rm_container "$DAV_LIGHTTPD_CONTAINER"; }
 down_lighttpd_sess() { rm_container "$DAV_LIGHTTPD_SESS_CONTAINER"; }
+down_lighttpd_sha256() { rm_container "$DAV_LIGHTTPD_SHA256_CONTAINER"; }
 down_mockapi() { rm_container "$MOCK_CONTAINER"; }
 
 container_of() {
@@ -371,6 +390,7 @@ container_of() {
         sabredav) echo "$DAV_SABRE_CONTAINER" ;;
         lighttpd) echo "$DAV_LIGHTTPD_CONTAINER" ;;
         lighttpd-sess) echo "$DAV_LIGHTTPD_SESS_CONTAINER" ;;
+        lighttpd-sha256) echo "$DAV_LIGHTTPD_SHA256_CONTAINER" ;;
         mockapi) echo "$MOCK_CONTAINER" ;;
         *)       die "unknown server '$1' (known: $KNOWN_SERVERS)" ;;
     esac
