@@ -145,7 +145,10 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	//
 	// collectionRedirects sits above the counters, so a request it re-sends
 	// to a collection's slash-terminated URL is counted as the second
-	// request it is.
+	// request it is. It also sits above digestRequestURI: the re-sent request
+	// carries the Digest response gowebdav signed for the URL without the
+	// slash, and only a transport below it can sign it again for the URL it
+	// goes out with (#95).
 	d.stats = &api.MountStats{}
 	d.transport = &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass}, d.stats)}
 	d.client.SetTransport(d.transport)

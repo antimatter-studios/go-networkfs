@@ -20,9 +20,13 @@ package webdav
 // came.
 //
 // The credentials re-sent are those authorised for the first URL. Basic
-// credentials do not depend on the URL; a digest response does, so a server
-// that both redirects collections and demands digest authentication would
-// reject the re-sent request.
+// credentials do not depend on the URL. A digest response does (#95): it
+// names and hashes the request URI, and Apache refuses one signed for "/dir"
+// on a request for "/dir/" with 400 Bad Request, a status gowebdav never
+// answers. The transport below this one, digestRequestURI, signs every Digest
+// authorization again for the URI it goes out with, so the re-sent request
+// reaches the server signed for "/dir/" -- as long as this transport stays
+// above it. See Mount.
 
 import (
 	"bytes"
