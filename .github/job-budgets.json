@@ -4,7 +4,18 @@
   "workflows": {
     "ci.yml": {
       "runner-changes": {
-        "provisional": true,
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
         "reusable_workflow": "./.github/workflows/runner-pick.yml",
         "reusable_timeout_minutes": 5
       },
@@ -55,7 +66,18 @@
         }
       },
       "runners": {
-        "provisional": true,
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
         "reusable_workflow": "./.github/workflows/runner-pick.yml",
         "reusable_timeout_minutes": 5
       },
@@ -475,7 +497,18 @@
     },
     "runner-pick.yml": {
       "pick": {
-        "provisional": true
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        }
       }
     },
     "branch-reap.yml": {
