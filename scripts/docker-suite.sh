@@ -36,7 +36,13 @@ command -v docker >/dev/null 2>&1 \
 cleanup() { scripts/servers.sh down >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
+# Each phase reports its own seconds, because a job that runs out of time says
+# only that it did, never which phase ate the budget.
+phase_start=$SECONDS
+phase_done() { printf 'phase %s: %ss\n' "$1" "$((SECONDS - phase_start))"; phase_start=$SECONDS; }
+
 scripts/servers.sh up
+phase_done "servers up"
 
 # Built from the repository root, not from the Dockerfile's directory: the
 # image copies scripts/ci-install-chore.sh so that how chore is pinned and
@@ -46,6 +52,7 @@ if [ "${OUTPUT_BUDGET_VERBOSE:-0}" = 1 ]; then
 else
     docker build -q -t "$RUNNER_IMAGE" -f .github/docker/testrunner/Dockerfile . >/dev/null
 fi
+phase_done "runner image"
 
 # The caches use named volumes locally and restored host directories in CI.
 # /src is this checkout: the suite writes coverage.out and tmp/logs/
@@ -65,6 +72,7 @@ build_cache="${GO_BUILD_CACHE:-go-networkfs-gobuild}"
 for cache in "$module_cache" "$build_cache"; do
     case "$cache" in /*) mkdir -p "$cache" ;; esac
 done
+trap 'phase_done "suite"; cleanup' EXIT
 docker run --rm --network "$TEST_NETWORK" \
     -v "$REPO":/src -v "$module_cache":/go/pkg/mod \
     -v "$build_cache":/go/build-cache -e GOCACHE=/go/build-cache \
