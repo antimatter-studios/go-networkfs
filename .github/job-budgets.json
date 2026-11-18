@@ -1,6 +1,6 @@
 {
   "measured_at": "2026-11-16T16:57:11.858826+00:00",
-  "method": "Ten most recent successful runs per workflow across branches. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants averaged independently; job budget uses the largest variant budget. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets. Reusable timeout verified in the called workflow at its exact SHA; a reusable workflow in this repository is verified in place, at the commit the caller lands on.",
+  "method": "Ten most recent successful runs per workflow across branches, plus the antimatter-vps runs of a job the runner gate may place there. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants and runners averaged independently; a job's budget is the largest, because the pick is made per run and the budget must cover whichever runner it gets. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets, with one reviewed exception recorded here: a job killed at its budget while every one of its steps had already concluded success (run 44308179842, test and lint on antimatter-vps-linux-x64) is not a hang -- its elapsed time is a floor for that runner, and the budget is the formula applied to it. Reusable timeout verified in the called workflow at its exact SHA; a reusable workflow in this repository is verified in place, at the commit the caller lands on.",
   "workflows": {
     "ci.yml": {
       "runner-changes": {
@@ -166,6 +166,12 @@
               "run_id": 43876357988,
               "seconds": 90
             }
+          ],
+          "test (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 303
+            }
           ]
         }
       },
@@ -258,6 +264,12 @@
               "run_id": 43876357988,
               "seconds": 23
             }
+          ],
+          "lint (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 303
+            }
           ]
         }
       },
@@ -303,6 +315,12 @@
             {
               "run_id": 43876357988,
               "seconds": 12
+            }
+          ],
+          "govulncheck (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 219
             }
           ]
         }
@@ -391,6 +409,12 @@
             {
               "run_id": 43876357988,
               "seconds": 62
+            }
+          ],
+          "c-archive builds (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 222
             }
           ]
         }

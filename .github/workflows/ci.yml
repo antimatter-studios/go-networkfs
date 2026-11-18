@@ -159,7 +159,11 @@ jobs:
     needs: [changes, runners]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runners.outputs.runners || '{}')['test-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
-    timeout-minutes: 5
+    # 8, not 5: this job can be placed on antimatter-vps, where a cold Go
+    # toolchain and module cache cost about five times what GitHub's warm image
+    # costs (303s against 91s, run 44308179842). The budget covers the slower
+    # runner, because that is the one it may get.
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
@@ -291,7 +295,9 @@ jobs:
     name: lint
     needs: runners
     runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['lint'] || 'ubuntu-24.04' }}
-    timeout-minutes: 5
+    # 8 for the same reason as `test`: 303s on the vps runner against 40s on
+    # GitHub's, and the vps downloads golangci-lint on every job.
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
@@ -331,7 +337,8 @@ jobs:
     name: govulncheck
     needs: runners
     runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['vulncheck'] || 'ubuntu-24.04' }}
-    timeout-minutes: 5
+    # 6: 219s on the vps runner, against 18-31s on GitHub's.
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
 
@@ -368,7 +375,8 @@ jobs:
     needs: [changes, runners]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runners.outputs.runners || '{}')['archives-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
-    timeout-minutes: 5
+    # 6: 222s on the vps runner, against 30-58s on GitHub's.
+    timeout-minutes: 6
     strategy:
       fail-fast: false
       matrix:
