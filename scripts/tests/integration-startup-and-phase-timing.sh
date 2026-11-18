@@ -31,7 +31,7 @@ elif [ "$jobs" -lt "$servers" ]; then
 fi
 
 for phase in "go test" "c abi"; do
-    grep -qE "phase[^\n]*${phase}" "$ROOT/scripts/suite.sh" \
+    grep -qE "phase_done +\"${phase}\"" "$ROOT/scripts/suite.sh" \
         || fail "scripts/suite.sh does not report the seconds of its '${phase}' phase"
 done
 

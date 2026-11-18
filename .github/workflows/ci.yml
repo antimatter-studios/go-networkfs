@@ -220,6 +220,10 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ fromJSON(needs.changes.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
     timeout-minutes: 5
+    env:
+      # Every server starts at once: four at a time was three waves of image
+      # builds and port waits inside a five-minute budget.
+      SERVERS_UP_JOBS: 11
     steps:
       - uses: actions/checkout@v4
 

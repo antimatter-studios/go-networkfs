@@ -37,13 +37,20 @@ GO="${GO:-go}"
 
 pkgs="$($GO list ./... | grep -v '/test/' | paste -sd, -)"
 
+# Each phase reports its seconds: a job that runs out of time says only that it
+# did, never which phase ate the budget.
+phase_start=$SECONDS
+phase_done() { printf 'phase %s: %ss\n' "$1" "$((SECONDS - phase_start))"; phase_start=$SECONDS; }
+
 $GO test -count=1 -tags="$INTEGRATION_TAGS" \
     -coverpkg="$pkgs" \
     -covermode=atomic -coverprofile="$COVERAGE" ./...
+phase_done "go test"
 
 # The C harnesses need the servers still up: the SMB and S3 archives mount
 # against them, which is the only way to reach the success paths.
 scripts/cabi.sh cover
+phase_done "c abi"
 
 # Drop the harness's own packages from the merged profile.
 grep -v '/test/' "$COVERAGE" > "$COVERAGE.tmp" && mv "$COVERAGE.tmp" "$COVERAGE"
