@@ -123,6 +123,10 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	if parseErr != nil {
 		return &api.DriverError{Code: 11, Message: "invalid webdav URL: " + parseErr.Error()}
 	}
+	baseURL, parseErr = clientRoot(baseURL)
+	if parseErr != nil {
+		return &api.DriverError{Code: 11, Message: "invalid webdav URL: " + parseErr.Error()}
+	}
 
 	d.baseURL = baseURL
 	d.user = user
@@ -173,6 +177,23 @@ func canonicalBaseURL(baseURL string) (string, error) {
 		return parsedURL.String(), nil
 	}
 	return baseURL, nil
+}
+
+// clientRoot is the base URL in the form gowebdav takes it: its path
+// unescaped. gowebdav escapes every segment of the base URL joined with the
+// request path, so a collection the mount URL names escaped -- /dav%20root --
+// would go out escaped twice, as /dav%2520root, on every request line, MOVE
+// Destination and If header resource (#117).
+func clientRoot(baseURL string) (string, error) {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+	root := parsedURL.Scheme + "://"
+	if parsedURL.User != nil {
+		root += parsedURL.User.String() + "@"
+	}
+	return root + parsedURL.Host + parsedURL.Path, nil
 }
 
 // Unmount is a no-op; gowebdav holds no persistent connection.
