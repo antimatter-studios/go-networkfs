@@ -80,6 +80,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: changes
+      min_free: "2"
 
   changes:
     name: changes (does this need the full pipeline?)
@@ -146,6 +147,17 @@ jobs:
   # belt to that braces. `integration` is gated too: the vps runners support
   # Docker, and a problem it meets there is fixed, not routed around.
   #
+  # EACH PICK KEEPS TWO POOL SLOTS SPARE (`min_free: "2"`). The antimatter-vps
+  # pool runs 2 runners, but the gate counts the org cap, which it reports as
+  # 4. A pick that counts the cap over-subscribes the pool: three picks made
+  # together all answered antimatter-vps, only two jobs could be dispatched,
+  # and the third's reservation lapsed with no runner to claim it --
+  # `integration` in run 44497936802 was queued and never claimed, and held
+  # the run open. With min_free=2 the gate prefers antimatter-vps only when 2
+  # slots stay free after the pick, which with a cap of 4 is only while the
+  # pool of 2 has a runner free. `runner-changes` keeps 2 spare too: other
+  # runs share the pool, and a stranded `changes` hangs the run the same way.
+  #
   # `ci-ok` IS NOT PICKED. It is the last job to start, it is a few seconds of
   # jq over `needs`, and a vps reservation lasts two minutes: placed there it
   # spends a slot other work needs and, having started after every other job,
@@ -161,6 +173,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: test-ubuntu
+      min_free: "2"
 
   test:
     name: test (${{ matrix.os }})
@@ -234,6 +247,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: integration
+      min_free: "2"
 
   integration:
     name: integration (containerised)
@@ -313,6 +327,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: lint
+      min_free: "2"
 
   lint:
     name: lint
@@ -362,6 +377,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: vulncheck
+      min_free: "2"
 
   vulncheck:
     name: govulncheck
@@ -407,6 +423,7 @@ jobs:
     uses: ./.github/workflows/runner-pick.yml
     with:
       jobs: archives-ubuntu
+      min_free: "2"
 
   build-archives:
     name: c-archive builds (${{ matrix.os }})
