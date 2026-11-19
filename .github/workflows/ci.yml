@@ -262,12 +262,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The runner context is not available to a job-level env, so the cache
-      # locations are exported from a step.
+      # The cache lives in the checkout, under a dot-directory that Go's `./...`
+      # skips and .gitignore hides: inside the workspace the antimatter-vps
+      # runner's Docker bind mounts reach it, and as a relative `path:` it is the
+      # same string on every runner kind. actions/cache versions a cache by its
+      # literal path, so `${{ runner.temp }}` (/home/runner/work/_temp on
+      # GitHub, /home/runner/_work/_temp on the vps) made each kind's caches
+      # invisible to the other (issue #123). docker-suite.sh mounts these
+      # directories, so they are exported as absolute paths.
       - name: Go cache locations
         run: |
-          echo "GO_BUILD_CACHE=$RUNNER_TEMP/go-networkfs-cache/build" >> "$GITHUB_ENV"
-          echo "GO_MODULE_CACHE=$RUNNER_TEMP/go-networkfs-cache/modules" >> "$GITHUB_ENV"
+          echo "GO_BUILD_CACHE=$GITHUB_WORKSPACE/.ci-cache/go-networkfs/build" >> "$GITHUB_ENV"
+          echo "GO_MODULE_CACHE=$GITHUB_WORKSPACE/.ci-cache/go-networkfs/modules" >> "$GITHUB_ENV"
+
+      # The compression method is part of the cache version too: without zstd
+      # actions/cache falls back to gzip, and the antimatter-vps image has none,
+      # so a vps run could never restore what a GitHub runner saved with zstd.
+      - name: zstd for the cache
+        if: runner.os == 'Linux'
+        run: command -v zstd >/dev/null || { sudo apt-get update && sudo apt-get install -y zstd; }
 
       # Restored and saved by separate steps: a cold run that reaches its
       # runtime limit must still keep what it compiled, or the next run is
@@ -276,7 +289,7 @@ jobs:
       - uses: actions/cache/restore@v4
         id: gocache
         with:
-          path: ${{ runner.temp }}/go-networkfs-cache
+          path: .ci-cache/go-networkfs
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
           # The bare prefix comes last: a changed hash restores the newest older
           # cache instead of compiling everything inside the job's time budget.
@@ -310,7 +323,7 @@ jobs:
       - uses: actions/cache/save@v4
         if: always() && (steps.gocache.outputs.cache-matched-key == '' || !contains(steps.gocache.outputs.cache-matched-key, hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile')))
         with:
-          path: ${{ runner.temp }}/go-networkfs-cache
+          path: .ci-cache/go-networkfs
           key: ${{ runner.os }}-${{ runner.arch }}-networkfs-integration-${{ hashFiles('go.mod', 'go.sum', '.github/docker/testrunner/Dockerfile') }}-${{ github.run_id }}
 
       - uses: actions/upload-artifact@v4

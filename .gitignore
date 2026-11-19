@@ -34,3 +34,8 @@ coverage.html
 # tmp/bin (the pinned golangci-lint and govulncheck `chore tools` installs).
 # Derived, per-machine, and `chore clean` removes it.
 /tmp/
+
+# The integration job's Go build and module caches (.github/workflows/ci.yml),
+# kept in the checkout so the cache path is the same string on every runner.
+# A dot-directory, so `go ... ./...` and golangci-lint never descend into it.
+/.ci-cache/
