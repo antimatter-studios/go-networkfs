@@ -74,9 +74,24 @@ jobs:
           OWNER: ${{ inputs.owner }}
           PREFER: ${{ inputs.prefer }}
           FALLBACK: ${{ inputs.fallback }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           ours=true
+          # A merge group is the one run that must not lose its place: the queue
+          # tests a fresh branch with a cold cache, so its gated jobs start
+          # behind one another, and a pick made at the front can lapse its
+          # two-minute reservation before the job is dispatched. When it does,
+          # the runner's start hook refuses the job and `ci-ok` fails the group
+          # on a job that never ran a step, which removes the pull request from
+          # the queue (run 44494822694: `vulncheck` was dispatched 76s after its
+          # reservation expired, with `test` and `lint` holding the host's
+          # runners). Nothing is gained there: the queue's job is to prove the
+          # tree, and a fixed GitHub runner does that without a reservation.
+          # Pull request runs still ask the gate.
+          if [ "$EVENT" = "merge_group" ]; then
+            ours=false
+          fi
           for who in "$ACTOR" "$GH_ACTOR" "$SENDER" "$AUTHOR"; do
             [ -z "$who" ] || [ "$who" = "$OWNER" ] || ours=false
           done
