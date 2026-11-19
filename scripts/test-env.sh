@@ -19,6 +19,12 @@
 # THE NAMES ARE THE MAKEFILE'S, unchanged. They are what .github/workflows,
 # the runner container and anyone's shell history already say.
 
+# WHAT THE CALLER EXPORTED, taken before anything below is defaulted. The
+# per-run isolation at the end of this file must leave alone every value the
+# caller chose, and a value an earlier script already exported (export_suite_env
+# exports ports) is one of them: it has been isolated once and must not be again.
+_CALLER_ENV=" $(compgen -e | tr '\n' ' ') "
+
 # Where the servers are reachable.
 SMB_ADDR="${SMB_ADDR:-127.0.0.1}"
 S3_ADDR="${S3_ADDR:-127.0.0.1}"
@@ -239,4 +245,44 @@ if [ -z "${CABI_LDLIBS:-}" ]; then
         Darwin) CABI_LDLIBS="-framework CoreFoundation -framework Security" ;;
         *)      CABI_LDLIBS="-lpthread -ldl -lresolv" ;;
     esac
+fi
+
+# PER-RUN ISOLATION, for a host that runs more than one of these at once.
+#
+# The vps runners are shared: two integration runs, or one of ours and another
+# repository's, can be on the same Docker daemon together. Every name here is
+# fixed, and `servers.sh up` removes a container by name before it starts one,
+# so the second run would delete the first run's servers, and a published port
+# the first holds fails the second's `docker run`. A run that has an id
+# therefore gets a name and a port range of its own:
+#
+#   RUN_TAG   the run's id. CI's GITHUB_RUN_ID and attempt by default, so two
+#             runs never share one and a re-run is not the run it replaces; set
+#             it by hand to run two copies on one machine.
+#   containers and the network get "-$RUN_TAG" appended, and the runner image
+#             is tagged with it instead of :latest.
+#   ports     every *_PORT and the FTP passive range move up by one offset,
+#             PORT_OFFSET, 0 to 780 in steps of 20 chosen from RUN_TAG. Twenty
+#             keeps one service's moved port off another's (the defaults differ
+#             by 1, 101 and 1000 or more, none a multiple of 20), and 780 keeps
+#             the passive range below 32768, which is where Linux hands out
+#             source ports (#15). Two runs can still draw the same offset, one
+#             in forty; servers.sh then fails on the bound port instead of
+#             deleting anything.
+#
+# Server images keep their tags: two builds of one Dockerfile are the same
+# image. Nothing changes when RUN_TAG is empty, which is every local run, and
+# any variable the caller set is left as the caller set it.
+RUN_TAG="${RUN_TAG:-${GITHUB_RUN_ID:+$GITHUB_RUN_ID-${GITHUB_RUN_ATTEMPT:-1}}}"
+if [ -n "$RUN_TAG" ]; then
+    PORT_OFFSET=$(( $(printf %s "$RUN_TAG" | cksum | cut -d' ' -f1) % 40 * 20 ))
+    for _v in $(compgen -v); do
+        case "$_CALLER_ENV" in *" $_v "*) continue ;; esac
+        case "$_v" in
+            *_PORT|FTP_PASV_LO|FTP_PASV_HI) printf -v "$_v" %s "$(( ${!_v} + PORT_OFFSET ))" ;;
+            *_CONTAINER|TEST_NETWORK)       printf -v "$_v" %s "${!_v}-$RUN_TAG" ;;
+            RUNNER_IMAGE)                   printf -v "$_v" %s "${!_v%:*}:$RUN_TAG" ;;
+        esac
+    done
+    unset _v
 fi

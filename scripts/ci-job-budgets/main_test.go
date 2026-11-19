@@ -50,10 +50,16 @@ func TestCheckJob(t *testing.T) {
 	reusable := measured(10)
 	reusable.ReusableWorkflow = pinned
 	reusable.ReusableTimeoutMinutes = 5
+	local := "./.github/workflows/runner-pick.yml"
+	localReusable := measured(10)
+	localReusable.ReusableWorkflow = local
+	localReusable.ReusableTimeoutMinutes = 5
+	bounded := "jobs:\n  pick:\n    timeout-minutes: 5\n"
 	for _, test := range []struct {
 		name    string
 		job     workflowJob
 		entry   budget
+		called  string
 		invalid bool
 	}{
 		{name: "bounded", job: workflowJob{Timeout: 5}, entry: measured(100)},
@@ -65,13 +71,38 @@ func TestCheckJob(t *testing.T) {
 		{name: "changed reusable", job: workflowJob{Uses: "other/" + pinned}, entry: reusable, invalid: true},
 		{name: "caller timeout", job: workflowJob{Uses: pinned, Timeout: 5}, entry: reusable, invalid: true},
 		{name: "stale reusable", job: workflowJob{Timeout: 5}, entry: reusable, invalid: true},
+		{name: "local reusable", job: workflowJob{Uses: local}, entry: localReusable, called: bounded},
+		{name: "local reusable renamed", job: workflowJob{Uses: "./.github/workflows/other.yml"}, entry: localReusable, called: bounded, invalid: true},
+		{name: "local reusable unbounded callee", job: workflowJob{Uses: local}, entry: localReusable, called: "jobs:\n  pick: {}\n", invalid: true},
+		{name: "local reusable inflated callee", job: workflowJob{Uses: local}, entry: localReusable, called: "jobs:\n  pick:\n    timeout-minutes: 30\n", invalid: true},
+		{name: "local reusable nested", job: workflowJob{Uses: local}, entry: localReusable, called: "jobs:\n  pick:\n    uses: ./.github/workflows/other.yml\n", invalid: true},
+		{name: "local reusable missing callee", job: workflowJob{Uses: local}, entry: localReusable, invalid: true},
+		{name: "local reusable caller timeout", job: workflowJob{Uses: local, Timeout: 5}, entry: localReusable, called: bounded, invalid: true},
+		{name: "local reusable unrecorded", job: workflowJob{Uses: local}, entry: measured(10), called: bounded, invalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := checkJob(test.job, test.entry); (err != nil) != test.invalid {
+			root := t.TempDir()
+			workflows := filepath.Join(root, ".github", "workflows")
+			if err := os.MkdirAll(workflows, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if test.called != "" {
+				if err := os.WriteFile(filepath.Join(workflows, "runner-pick.yml"), []byte(test.called), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := checkJob(root, test.job, test.entry); (err != nil) != test.invalid {
 				t.Fatalf("checkJob = %v; invalid=%v", err, test.invalid)
 			}
 		})
 	}
+}
+
+func localEntry(path string) budget {
+	entry := measured(10)
+	entry.ReusableWorkflow = path
+	entry.ReusableTimeoutMinutes = 5
+	return entry
 }
 
 func TestCheckWorkflows(t *testing.T) {
@@ -90,6 +121,8 @@ func TestCheckWorkflows(t *testing.T) {
 		{name: "no workflows", invalid: true},
 		{name: "expression timeout", files: map[string]string{"ci.yml": "jobs:\n  test:\n    timeout-minutes: ${{ matrix.timeout }}\n"}, invalid: true},
 		{name: "invalid yaml", files: map[string]string{"ci.yml": "jobs: ["}, invalid: true},
+		{name: "local reusable workflow", files: map[string]string{"ci.yml": "jobs:\n  pick:\n    uses: ./.github/workflows/reuse.yml\n  test:\n    timeout-minutes: 5\n", "reuse.yml": "jobs:\n  pick:\n    timeout-minutes: 5\n"}, entries: map[string]map[string]budget{"ci.yml": {"pick": localEntry("./.github/workflows/reuse.yml"), "test": measured(10)}, "reuse.yml": {"pick": measured(10)}}},
+		{name: "local reusable workflow unbounded", files: map[string]string{"ci.yml": "jobs:\n  pick:\n    uses: ./.github/workflows/reuse.yml\n", "reuse.yml": "jobs:\n  pick: {}\n"}, entries: map[string]map[string]budget{"ci.yml": {"pick": localEntry("./.github/workflows/reuse.yml")}, "reuse.yml": {"pick": measured(10)}}, invalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
