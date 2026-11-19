@@ -77,9 +77,11 @@ func validRevision(revision string) error {
 
 // resourceURL is the URL gowebdav sends for a full server path, as the
 // request URI or as a MOVE's Destination. An If header's tag must name a
-// resource the way the request does, or the server cannot match it.
+// resource the way the request does, or the server cannot match it. It is
+// built from the root gowebdav is given, with the mount's authority put back
+// as the transport puts it back in the request (#116).
 func (d *WebDAVDriver) resourceURL(full string) string {
-	return gowebdav.PathEscape(gowebdav.Join(gowebdav.FixSlash(d.baseURL), full))
+	return d.authority.restore(gowebdav.PathEscape(gowebdav.Join(gowebdav.FixSlash(d.clientRoot), full)))
 }
 
 // condition is one tagged list: the resource at full must be at revision.
@@ -141,7 +143,7 @@ func (s *conditionalTransport) RoundTrip(request *http.Request) (*http.Response,
 // left to the If header.
 func (d *WebDAVDriver) conditionalClient(method, ifMatch string, conditions ...condition) (*gowebdav.Client, *conditionalTransport) {
 	recorder := &conditionalTransport{base: d.transport, method: method}
-	client := gowebdav.NewAuthClient(d.baseURL, d.auth)
+	client := gowebdav.NewAuthClient(d.clientRoot, d.auth)
 	client.SetTransport(recorder)
 	if ifMatch != "" && !strings.HasPrefix(ifMatch, "W/") {
 		client.SetHeader("If-Match", ifMatch)

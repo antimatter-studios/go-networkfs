@@ -88,7 +88,7 @@ func successfulMove(status int) bool {
 // goroutine and then dropped.
 func (d *WebDAVDriver) rename(fullOld, fullNew string) error {
 	bounded := &boundedMoveTransport{base: d.transport}
-	client := gowebdav.NewAuthClient(d.baseURL, d.auth)
+	client := gowebdav.NewAuthClient(d.clientRoot, d.auth)
 	client.SetTransport(bounded)
 	err := client.Rename(fullOld, fullNew, true)
 	if err != nil && bounded.status == http.StatusConflict {
