@@ -188,7 +188,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Ubuntu alone in a merge group (#120): a macOS leg there can wait
+        # 15-19 minutes for a runner that never comes, is cancelled with zero
+        # steps, and the queue drops the pull request. Darwin is proven on the
+        # pull request head before it is queued.
+        os: ${{ fromJSON(github.event_name == 'merge_group' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -448,7 +452,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Ubuntu alone in a merge group (#120): a macOS leg there can wait
+        # 15-19 minutes for a runner that never comes, is cancelled with zero
+        # steps, and the queue drops the pull request. Darwin is proven on the
+        # pull request head before it is queued.
+        os: ${{ fromJSON(github.event_name == 'merge_group' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -488,10 +496,16 @@ jobs:
     needs: [runner-changes, changes, runner-test, runner-integration, runner-archives, runner-lint, runner-vulncheck, test, integration, lint, vulncheck, build-archives]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # actions: read lists this run's jobs, so a failed gate can say which of
+    # them never got a runner (#120).
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: every gating job must have concluded success
         env:
           NEEDS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
           # false only for a change to documentation alone: then, and only
           # then, a skipped job is not a failed one.
           CODE: ${{ needs.changes.outputs.code }}
@@ -502,6 +516,18 @@ jobs:
           bad="$(echo "$NEEDS" | jq -r --arg code "$CODE" '[to_entries[] | select(.value.result != "success" and ($code != "false" or .value.result != "skipped")) | .key] | join(", ")')"
           if [ -n "$bad" ]; then
             echo "::error::not 'success': $bad -- failure, cancellation and skipping all mean the gate did not run to completion"
+            # Diagnostic only: a job that ran no step never had a runner, which
+            # is not the change's fault. Nothing here may alter the verdict.
+            if jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --paginate 2>/dev/null)" &&
+               report="$(echo "$jobs" | jq -rs '
+                   [.[].jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")]
+                   | (.[] | select((.steps | length) == 0 or (.runner_name // "") == "") | "never started (no runner assigned): \(.name) [\(.conclusion)]"),
+                     (.[] | select((.steps | length) > 0 and (.runner_name // "") != "") | "failed: \(.name) [\(.conclusion)]")
+               ' 2>/dev/null)"; then
+              echo "$report"
+            else
+              echo "::warning::could not list this run's jobs; the verdict above stands"
+            fi
             exit 1
           fi
           echo "all gating jobs succeeded"
