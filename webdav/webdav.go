@@ -42,8 +42,12 @@ func init() {
 
 // WebDAVDriver implements the Driver interface for WebDAV connections
 type WebDAVDriver struct {
-	connected  bool
-	baseURL    string
+	connected bool
+	baseURL   string
+	// clientRoot is the root URL gowebdav is given for baseURL, and authority
+	// maps it back to baseURL's (#116; see ipv6_authority.go).
+	clientRoot string
+	authority  authority
 	user       string
 	pass       string
 	pathPrefix string
@@ -129,13 +133,14 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	}
 
 	d.baseURL = baseURL
+	d.clientRoot, d.authority = standInRoot(baseURL)
 	d.user = user
 	d.pass = pass
 	d.pathPrefix = pathPrefix
 
 	sessions := &digestSessions{}
 	d.auth = newAuthorizer(user, pass, sessions)
-	d.client = gowebdav.NewAuthClient(baseURL, d.auth)
+	d.client = gowebdav.NewAuthClient(d.clientRoot, d.auth)
 
 	// Wire a CountingTransport into gowebdav's underlying http.Client so
 	// every PROPFIND / GET / PUT / MKCOL / DELETE flows through our
@@ -154,8 +159,14 @@ func (d *WebDAVDriver) Mount(mountID int, config map[string]string) (err error) 
 	// carries the Digest response gowebdav signed for the URL without the
 	// slash, and only a transport below it can sign it again for the URL it
 	// goes out with (#95).
+	//
+	// restoredAuthority sits above everything, so every transport below it,
+	// and the server, sees the mount's real authority (#116).
 	d.stats = &api.MountStats{}
-	d.transport = &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass, sessions: sessions}, d.stats)}
+	d.transport = &restoredAuthority{
+		base:      &collectionRedirects{base: api.NewCountingTransport(&digestRequestURI{password: pass, sessions: sessions}, d.stats)},
+		authority: d.authority,
+	}
 	d.client.SetTransport(d.transport)
 
 	// Optional: validate with Connect (may no-op depending on server).
