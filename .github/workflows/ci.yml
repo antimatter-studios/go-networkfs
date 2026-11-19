@@ -201,6 +201,12 @@ jobs:
         if: runner.os == 'Linux'
         run: command -v gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y build-essential; }
 
+      # The antimatter-vps image has no Go in its tool cache: extracting it there
+      # first spares setup-go a minute-long copy into the cache (issue #121).
+      - name: Go in the tool cache for the gated runner
+        if: runner.os == 'Linux'
+        run: scripts/ci-go-toolcache.sh
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -361,6 +367,12 @@ jobs:
         if: runner.os == 'Linux'
         run: command -v gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y build-essential; }
 
+      # The antimatter-vps image has no Go in its tool cache: extracting it there
+      # first spares setup-go a minute-long copy into the cache (issue #121).
+      - name: Go in the tool cache for the gated runner
+        if: runner.os == 'Linux'
+        run: scripts/ci-go-toolcache.sh
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -409,6 +421,12 @@ jobs:
       - name: C toolchain for the gated runner
         if: runner.os == 'Linux'
         run: command -v gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y build-essential; }
+
+      # The antimatter-vps image has no Go in its tool cache: extracting it there
+      # first spares setup-go a minute-long copy into the cache (issue #121).
+      - name: Go in the tool cache for the gated runner
+        if: runner.os == 'Linux'
+        run: scripts/ci-go-toolcache.sh
 
       - uses: actions/setup-go@v5
         with:
@@ -464,6 +482,12 @@ jobs:
       - name: C toolchain for the gated runner
         if: runner.os == 'Linux'
         run: command -v gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y build-essential; }
+
+      # The antimatter-vps image has no Go in its tool cache: extracting it there
+      # first spares setup-go a minute-long copy into the cache (issue #121).
+      - name: Go in the tool cache for the gated runner
+        if: runner.os == 'Linux'
+        run: scripts/ci-go-toolcache.sh
 
       - uses: actions/setup-go@v5
         with:

@@ -56,6 +56,11 @@ jobs:
       - name: C toolchain for the gated runner
         run: command -v gcc >/dev/null || { sudo apt-get update && sudo apt-get install -y build-essential; }
 
+      # Use the explorer's exact Go version from the setup-go step below.
+      - name: Go in the tool cache for the gated runner
+        if: runner.os == 'Linux'
+        run: scripts/ci-go-toolcache.sh 1.27.1
+
       # NOT go.mod's Go. go1.26's fuzzer can fail a clean run when a target's
       # -fuzztime expires (go.dev/issue/75804; run 37917988928, #55), and the
       # fix, golang/go@5a957dc766, is only in go1.27. The explorer runs on
