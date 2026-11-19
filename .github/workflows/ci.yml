@@ -70,11 +70,11 @@ jobs:
   # and the release archives run only when the answer is true, and ci-ok
   # accepts their skip when, and only when, it is false.
   #
-  # The first pick places `changes` itself. It cannot share the second pick
-  # (`runners`, below), which needs changes' answer to know which jobs will run
-  # and so must come after it. The pick job is the one thing here that stays on
-  # a fixed GitHub runner: something has to ask the gate, and it is a few
-  # seconds of curl.
+  # This pick places `changes` itself. The picks that follow (`runner-test`
+  # and the rest, below) need changes' answer to know which jobs will run, and
+  # so must come after it. The pick job is the one thing here that stays on a
+  # fixed GitHub runner: something has to ask the gate, and it is a few seconds
+  # of curl.
   runner-changes:
     name: runner (for changes)
     uses: ./.github/workflows/runner-pick.yml
@@ -131,13 +131,20 @@ jobs:
           echo "code=$code ($EVENT${range:+ $range})"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
-  # THE SECOND PICK, as a job: .github/workflows/runner-pick.yml, reusable, asks
-  # the gate where each job below should run (antimatter-vps or GitHub). Only
-  # jobs that will run are named, since a pick holds a runner slot. The pick
-  # job itself cannot fail on a gate that does not answer (each pick falls back
-  # to ubuntu-24.04), so the fallback in each runs-on below is the belt to
-  # that braces. `integration` is gated too: the vps runners support Docker,
-  # and a problem it meets there is fixed, not routed around.
+  # EACH GATED JOB ASKS FOR ITS OWN RUNNER. .github/workflows/runner-pick.yml,
+  # reusable, asks the gate where one job should run (antimatter-vps or GitHub),
+  # and each of the `runner-*` jobs below calls it with exactly one job name,
+  # placed just before the job it serves. The pick is made immediately before
+  # the job runs, so its two-minute reservation is fresh when GitHub dispatches
+  # that job. One pick holding several slots does not work: GitHub dispatches
+  # the picked jobs one after another, and the later ones wait past the
+  # reservation, which the runner's start hook then refuses (govulncheck failed
+  # in "Set up runner" with every work step skipped, 4s past its reservation,
+  # run 44496384374). Only jobs that will run are picked, since a pick holds a
+  # runner slot. A pick job cannot fail on a gate that does not answer (each
+  # pick falls back to ubuntu-24.04), so the fallback in each runs-on is the
+  # belt to that braces. `integration` is gated too: the vps runners support
+  # Docker, and a problem it meets there is fixed, not routed around.
   #
   # `ci-ok` IS NOT PICKED. It is the last job to start, it is a few seconds of
   # jq over `needs`, and a vps reservation lasts two minutes: placed there it
@@ -147,18 +154,19 @@ jobs:
   # whose only missing check was the aggregate never landed. It runs where
   # rust-fs-core's aggregate runs: a fixed GitHub runner, where nothing else
   # competes for the place.
-  runners:
-    name: runners (which runner each job gets)
+  runner-test:
+    name: runner (for test)
     needs: changes
+    if: needs.changes.outputs.code == 'true'
     uses: ./.github/workflows/runner-pick.yml
     with:
-      jobs: lint vulncheck${{ needs.changes.outputs.code == 'true' && ' test-ubuntu archives-ubuntu integration' || '' }}
+      jobs: test-ubuntu
 
   test:
     name: test (${{ matrix.os }})
-    needs: [changes, runners]
+    needs: [changes, runner-test]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runners.outputs.runners || '{}')['test-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runner-test.outputs.runners || '{}')['test-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
     # 8, not 5: this job can be placed on antimatter-vps, where a cold Go
     # toolchain and module cache cost about five times what GitHub's warm image
     # costs (303s against 91s, run 44308179842). The budget covers the slower
@@ -219,11 +227,19 @@ jobs:
             coverage.out
             tmp/logs/
 
+  runner-integration:
+    name: runner (for integration)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/runner-pick.yml
+    with:
+      jobs: integration
+
   integration:
     name: integration (containerised)
-    needs: [changes, runners]
+    needs: [changes, runner-integration]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
+    runs-on: ${{ fromJSON(needs.runner-integration.outputs.runners || '{}')['integration'] || 'ubuntu-24.04' }}
     timeout-minutes: 5
     env:
       # Every server starts at once: four at a time was three waves of image
@@ -291,10 +307,17 @@ jobs:
             coverage.out
             tmp/logs/
 
+  runner-lint:
+    name: runner (for lint)
+    needs: changes
+    uses: ./.github/workflows/runner-pick.yml
+    with:
+      jobs: lint
+
   lint:
     name: lint
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['lint'] || 'ubuntu-24.04' }}
+    needs: runner-lint
+    runs-on: ${{ fromJSON(needs.runner-lint.outputs.runners || '{}')['lint'] || 'ubuntu-24.04' }}
     # 8 for the same reason as `test`: 303s on the vps runner against 40s on
     # GitHub's, and the vps downloads golangci-lint on every job.
     timeout-minutes: 8
@@ -333,10 +356,17 @@ jobs:
       - name: chore lint
         run: chore lint
 
+  runner-vulncheck:
+    name: runner (for govulncheck)
+    needs: changes
+    uses: ./.github/workflows/runner-pick.yml
+    with:
+      jobs: vulncheck
+
   vulncheck:
     name: govulncheck
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['vulncheck'] || 'ubuntu-24.04' }}
+    needs: runner-vulncheck
+    runs-on: ${{ fromJSON(needs.runner-vulncheck.outputs.runners || '{}')['vulncheck'] || 'ubuntu-24.04' }}
     # 6: 219s on the vps runner, against 18-31s on GitHub's.
     timeout-minutes: 6
     steps:
@@ -370,11 +400,19 @@ jobs:
       - name: chore vulncheck
         run: chore vulncheck
 
+  runner-archives:
+    name: runner (for build-archives)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    uses: ./.github/workflows/runner-pick.yml
+    with:
+      jobs: archives-ubuntu
+
   build-archives:
     name: c-archive builds (${{ matrix.os }})
-    needs: [changes, runners]
+    needs: [changes, runner-archives]
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runners.outputs.runners || '{}')['archives-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && (fromJSON(needs.runner-archives.outputs.runners || '{}')['archives-ubuntu'] || 'ubuntu-24.04') || matrix.os }}
     # 6: 222s on the vps runner, against 30-58s on GitHub's.
     timeout-minutes: 6
     strategy:
@@ -417,7 +455,7 @@ jobs:
     # other jobs, judged from `needs` as a whole, so a job added to `needs:`
     # is judged without editing this step.
     if: always()
-    needs: [runner-changes, changes, runners, test, integration, lint, vulncheck, build-archives]
+    needs: [runner-changes, changes, runner-test, runner-integration, runner-archives, runner-lint, runner-vulncheck, test, integration, lint, vulncheck, build-archives]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

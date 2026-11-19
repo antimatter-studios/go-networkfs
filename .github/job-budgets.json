@@ -65,7 +65,71 @@
           ]
         }
       },
-      "runners": {
+      "runner-test": {
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
+      "runner-integration": {
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
+      "runner-archives": {
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
+      "runner-lint": {
+        "samples": {
+          "pick runners": [
+            {
+              "run_id": 44278573367,
+              "seconds": 4
+            },
+            {
+              "run_id": 44278573367,
+              "seconds": 11
+            }
+          ]
+        },
+        "reusable_workflow": "./.github/workflows/runner-pick.yml",
+        "reusable_timeout_minutes": 5
+      },
+      "runner-vulncheck": {
         "samples": {
           "pick runners": [
             {
