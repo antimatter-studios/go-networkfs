@@ -16,7 +16,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-WF="$ROOT/.github/workflows/ci.yml"
+WORKFLOWS="$ROOT/.github/workflows"
 SCRIPT="$ROOT/scripts/ci-go-toolcache.sh"
 
 fails=0
@@ -29,24 +29,63 @@ done
 # (a) Every setup-go step is immediately preceded by a Linux step that runs the
 # script. A step starts at a `      - ` line; the text of the previous step is
 # what is checked when a step using actions/setup-go begins.
-seen="$(awk '
-    /^      - /{
-        if (index($0, "actions/setup-go")) {
-            n++
-            ok = index(prev, "scripts/ci-go-toolcache.sh") && index(prev, "runner.os == '\''Linux'\''")
-            print (ok ? "ok" : "missing") " " NR
+check_workflows() (
+    fails=0
+    wf="$1/ci.yml"
+    seen="$(awk '
+        /^      - /{
+            if (index($0, "actions/setup-go")) {
+                n++
+                ok = index(prev, "scripts/ci-go-toolcache.sh") && index(prev, "runner.os == '\''Linux'\''")
+                print (ok ? "ok" : "missing") " " NR
+            }
+            prev = $0; next
         }
-        prev = $0; next
-    }
-    /^  [a-z][a-z-]*:/{prev = ""; next}
-    {prev = prev "\n" $0}
-    END{print "count " n+0}' "$WF")"
+        /^  [a-z][a-z-]*:/{prev = ""; next}
+        {prev = prev "\n" $0}
+        END{print "count " n+0}' "$wf")"
 
-count="$(printf '%s\n' "$seen" | awk '$1=="count"{print $2}')"
-[ "$count" -gt 0 ] || fail "no actions/setup-go step found in $WF — this guard checked nothing"
-while read -r verdict line; do
-    [ "$verdict" = missing ] && fail "ci.yml:$line: actions/setup-go is not immediately preceded by a Linux step running scripts/ci-go-toolcache.sh"
-done <<<"$(printf '%s\n' "$seen" | grep -v '^count ')"
+    count="$(printf '%s\n' "$seen" | awk '$1=="count"{print $2}')"
+    [ "$count" -gt 0 ] || fail "no actions/setup-go step found in $wf — this guard checked nothing"
+    while read -r verdict line; do
+        [ "$verdict" = missing ] && fail "ci.yml:$line: actions/setup-go is not immediately preceded by a Linux step running scripts/ci-go-toolcache.sh"
+    done <<<"$(printf '%s\n' "$seen" | grep -v '^count ')"
+    [ "$fails" -eq 0 ]
+)
+
+if ! check_workflows "$WORKFLOWS"; then
+    fails=$((fails + 1))
+fi
+
+work="$(mktemp -d)" || { fail "could not create a temporary directory"; exit 1; }
+trap 'rm -rf "$work"' EXIT
+
+if cp -R "$WORKFLOWS" "$work/workflows" &&
+    awk -v expected="$work/expected-line" '
+        {source[NR] = $0}
+        /^      - /{
+            if (!remove && index($0, "actions/setup-go") && linux && toolcache) {
+                remove = prev
+                setup = NR
+            }
+            prev = NR
+            linux = toolcache = 0
+        }
+        /runner.os == '\''Linux'\''/{linux = 1}
+        /scripts\/ci-go-toolcache.sh/{toolcache = 1}
+        END{
+            if (!remove) exit 1
+            for (line = 1; line <= NR; line++)
+                if (line < remove || line >= setup) print source[line]
+            print remove > expected
+        }' "$WORKFLOWS/fuzz.yml" > "$work/workflows/fuzz.yml"; then
+    line="$(cat "$work/expected-line")"
+    if result="$(check_workflows "$work/workflows")" || ! grep -Fq "fuzz.yml:$line:" <<<"$result"; then
+        fail "self-test: expected the workflow check to fail and name fuzz.yml:$line after removing its Linux tool-cache step"
+    fi
+else
+    fail "self-test: could not remove a Linux tool-cache step before setup-go in fuzz.yml"
+fi
 
 # (b) Functionally: a fake Go archive served from a file:// base lands in the
 # tool cache with its marker, and a second run with the marker present does not
@@ -55,8 +94,6 @@ if [ ! -f "$SCRIPT" ]; then
     fail "scripts/ci-go-toolcache.sh does not exist"
 else
     ver="$(awk '$1=="toolchain"{sub(/^go/,"",$2);print $2;f=1;exit} $1=="go"{g=$2} END{if(!f)print g}' "$ROOT/go.mod")"
-    work="$(mktemp -d)"
-    trap 'rm -rf "$work"' EXIT
     mkdir -p "$work/src/go/bin" "$work/dl" "$work/cache"
     printf '#!/bin/sh\necho "go version go%s linux/amd64"\n' "$ver" >"$work/src/go/bin/go"
     chmod +x "$work/src/go/bin/go"
