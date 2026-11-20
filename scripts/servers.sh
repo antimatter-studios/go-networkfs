@@ -46,16 +46,15 @@ cd "$REPO"
 # `all` means these eleven: the containers, on one network, which is what the
 # runner container needs. s3-native is not in it — it is the same server twice.
 #
-# THE SLOWEST COME FIRST, because servers start in this order and only a few at
-# a time. mockapi pulls the Go image and sabredav pulls two PHP images; last in
-# the queue, mockapi's pull only began once the quick servers had finished.
+# The slowest builds come first, because servers start in this order and only
+# a few at a time.
 ALL_SERVERS="mockapi sabredav samba s3 ftp sftp webdav lighttpd lighttpd-sess lighttpd-sha256 squid"
 KNOWN_SERVERS="$ALL_SERVERS s3-native"
 
 # Every address, port, credential and image: scripts/test-env.sh, which the
 # suite and the C harness read too, so a port cannot be 4445 here and 445
 # there.
-# shellcheck source=scripts/test-env.sh
+# shellcheck source=scripts/test-env.sh disable=SC1091
 . "$REPO/scripts/test-env.sh"
 
 VERBOSE="${OUTPUT_BUDGET_VERBOSE:-0}"
@@ -118,6 +117,38 @@ ensure_image() {   # $1 = image reference
     else
         docker pull -q "$1" >/dev/null
     fi
+}
+
+# The server Dockerfiles use literal FROM references and optional stage names.
+server_images() {   # $@ = server names
+    local name
+    for name in "$@"; do
+        case "$name" in
+            s3) printf '%s\n' "$S3_IMAGE"; continue ;;
+            ftp) printf '%s\n' "$FTP_IMAGE"; continue ;;
+            s3-native) continue ;;
+            mockapi) printf '%s\n' "$MOCK_BUILD_IMAGE" ;;
+        esac
+        awk '
+            toupper($1) == "FROM" {
+                image = tolower($2)
+                if (image != "scratch" && !(image in stages)) print $2
+                if (toupper($3) == "AS") stages[tolower($4)] = 1
+            }
+        ' ".github/docker/$name/Dockerfile" || return
+    done
+}
+
+# Parallel pulls on the Podman sidecar can fail while unpacking layers (#129).
+# Finish pulling run images and build bases before opening the worker pool.
+prepull_images() {   # $@ = server names
+    local images image
+    images="$(server_images "$@" | awk 'NF && !seen[$0]++')" \
+        || die "could not list server images"
+    [ -n "$images" ] || return 0
+    while IFS= read -r image; do
+        ensure_image "$image" || die "failed to pull image '$image'"
+    done <<< "$images"
 }
 
 # Wait for a container's published port, or dump the container's logs and fail.
@@ -192,7 +223,6 @@ up_samba() {
 # exists before anything connects. The Go tests make their own bucket through
 # the API; the C harness has no way to, which is what the pre-creation is for.
 up_s3() {
-    ensure_image "$S3_IMAGE"
     rm_container "$S3_CONTAINER"
     docker run -d --network "$TEST_NETWORK" --network-alias sss3 \
         --name "$S3_CONTAINER" -p "$S3_PORT:5553" \
@@ -216,7 +246,6 @@ up_s3_native() {
 down_s3_native() { scripts/sss3-server.sh down; }
 
 up_ftp() {
-    ensure_image "$FTP_IMAGE"
     rm_container "$FTP_CONTAINER"
     # Passive mode hands the client a second port to connect back on, so the
     # range has to be published as well as the control port.
@@ -397,7 +426,6 @@ up_squid() {
 compile_mockapi() {   # $1 = output directory
     # Every step returns its own failure: the caller tests this function, and
     # that switches `set -e` off inside it.
-    ensure_image "$MOCK_BUILD_IMAGE" || return
     case "$GO_BUILD_CACHE" in /*) mkdir -p "$GO_BUILD_CACHE" || return ;; esac
     docker run --rm -v "$REPO":/src:ro -v "$GO_BUILD_CACHE":/go/build-cache \
         -e GOCACHE=/go/build-cache -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
@@ -513,7 +541,12 @@ case "$cmd" in
         [[ "$SERVERS_UP_JOBS" =~ ^[1-9][0-9]*$ ]] \
             || die "SERVERS_UP_JOBS must be a positive whole number, not '$SERVERS_UP_JOBS'"
         # shellcheck disable=SC2086
-        if wants_docker $names; then need_docker; network_up; fi
+        if wants_docker $names; then
+            need_docker
+            network_up
+            # shellcheck disable=SC2086
+            prepull_images $names
+        fi
         # shellcheck disable=SC2086
         up_servers $names
         ;;
