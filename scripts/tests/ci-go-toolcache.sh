@@ -31,25 +31,33 @@ done
 # what is checked when a step using actions/setup-go begins.
 check_workflows() (
     fails=0
-    wf="$1/ci.yml"
-    seen="$(awk '
-        /^      - /{
-            if (index($0, "actions/setup-go")) {
-                n++
-                ok = index(prev, "scripts/ci-go-toolcache.sh") && index(prev, "runner.os == '\''Linux'\''")
-                print (ok ? "ok" : "missing") " " NR
+    total=0
+    for wf in "$1"/*.yml "$1"/*.yaml; do
+        [ -f "$wf" ] || continue
+        if ! seen="$(awk '
+            /^      - /{
+                if (index($0, "actions/setup-go")) {
+                    n++
+                    ok = index(prev, "scripts/ci-go-toolcache.sh") && index(prev, "runner.os == '\''Linux'\''")
+                    if (!ok) print "missing " NR
+                }
+                prev = $0; next
             }
-            prev = $0; next
-        }
-        /^  [a-z][a-z-]*:/{prev = ""; next}
-        {prev = prev "\n" $0}
-        END{print "count " n+0}' "$wf")"
+            /^  [a-z][a-z-]*:/{prev = ""; next}
+            {prev = prev "\n" $0}
+            END{print "count " n+0}' "$wf")"; then
+            fail "${wf##*/}: could not read workflow"
+            continue
+        fi
 
-    count="$(printf '%s\n' "$seen" | awk '$1=="count"{print $2}')"
-    [ "$count" -gt 0 ] || fail "no actions/setup-go step found in $wf — this guard checked nothing"
-    while read -r verdict line; do
-        [ "$verdict" = missing ] && fail "ci.yml:$line: actions/setup-go is not immediately preceded by a Linux step running scripts/ci-go-toolcache.sh"
-    done <<<"$(printf '%s\n' "$seen" | grep -v '^count ')"
+        while read -r verdict value; do
+            case "$verdict" in
+                count) total=$((total + value)) ;;
+                missing) fail "${wf##*/}:$value: actions/setup-go is not immediately preceded by a Linux step running scripts/ci-go-toolcache.sh" ;;
+            esac
+        done <<<"$seen"
+    done
+    [ "$total" -gt 0 ] || fail "no actions/setup-go step found in $1 — this guard checked nothing"
     [ "$fails" -eq 0 ]
 )
 
