@@ -171,7 +171,7 @@ backend in one go.
 ## CI hookup
 
 The [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) file
-enumerates every driver for the `build-archives` job. Add a new entry
+enumerates every driver for the `archives-linux` and `archives-macos` jobs. Add a new entry
 alongside the existing ones — one line per driver — and add the same
 blank import to `cmd/networkfs/main.go` so the combined archive keeps
 covering everything.

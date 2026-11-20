@@ -132,15 +132,22 @@ chore_min_version: 0.6.0
 #                                                    once per cgo test binary,
 #                                                    and there are nine of
 #                                                    them. ubuntu: 25 / 2,190
-#     suite        35 /  26,810       50 /  35,000   ~30%. The BYTES are the
+#     suite        39 /  36,527       50 /  48,000   ~30%. The BYTES are the
 #                                                    number to look at: -coverpkg
-#                                                    names 24 packages and
+#                                                    names every package and
 #                                                    `go test` repeats the whole
-#                                                    list on every one of the 21
-#                                                    `ok` lines, 1,250 characters
-#                                                    each. That is 80% of this
-#                                                    tier and it is go test's
-#                                                    doing, not ours
+#                                                    list on every `ok` line, so
+#                                                    a new package grows this
+#                                                    tier by its own line plus
+#                                                    its name on every other one.
+#                                                    That is most of this tier
+#                                                    and it is go test's doing,
+#                                                    not ours. Re-measured for
+#                                                    scripts/ci-runner-gates:
+#                                                    main printed 33,458 (run
+#                                                    44817529885), this tree
+#                                                    36,527 (run 44830824569,
+#                                                    attempt 2, antimatter-vps)
 #     scripts      31 /   1,071       40 /   1,600   ten guards and two verdicts.
 #                                                    A guard that passes prints
 #                                                    ONE line, so a new one is
@@ -361,6 +368,14 @@ tasks:
     # rust-fs-core's ci-gate, run in place from ../rust-fs-core as every
     # repository in the family runs it -- this file keeps no copy, and
     # family-check fails if one appears (`chore siblings` puts core there).
+    #
+    # CI_GATE_NON_GATING names the jobs that carry an `if:` other than the
+    # changes job's answer. ci-ok-gate only picks ci-ok's runner and runs
+    # `if: always()` like ci-ok. The macOS jobs and their gates are skipped in
+    # a merge group (#120); ci-ok still needs them and accepts that skip there
+    # and nowhere else.
+    env:
+      CI_GATE_NON_GATING: ci-ok-gate test-macos-gate test-macos archives-macos-gate archives-macos
     cmds:
       - bash ../rust-fs-core/scripts/family-check.sh
       - bash ../rust-fs-core/scripts/ci-gate.sh
@@ -485,7 +500,7 @@ tasks:
     # image build. `test` is what CI runs and what a bug report should quote.
     cmds:
       - task: deps
-      - 'scripts/with-servers.sh all -- bash ../rust-fs-core/scripts/tier.sh test:integration suite 50 35000 -- scripts/suite.sh'
+      - 'scripts/with-servers.sh all -- bash ../rust-fs-core/scripts/tier.sh test:integration suite 50 48000 -- scripts/suite.sh'
 
   test:ci:
     desc: "The suite with the servers ALREADY up — what runs inside the runner container"
@@ -494,7 +509,7 @@ tasks:
     # and you get the same run without the image build.
     cmds:
       - task: deps
-      - 'bash ../rust-fs-core/scripts/tier.sh test:ci suite 50 35000 -- scripts/suite.sh'
+      - 'bash ../rust-fs-core/scripts/tier.sh test:ci suite 50 48000 -- scripts/suite.sh'
 
   test:
     desc: "Everything CI runs: every server, the whole tagged suite and the C ABI, inside a container"

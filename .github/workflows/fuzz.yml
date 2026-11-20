@@ -38,16 +38,16 @@ env:
 
 jobs:
   # The runner gate, as in ci.yml: a scheduled run is placed like any other.
-  runners:
-    name: runners (which runner the job gets)
-    uses: ./.github/workflows/runner-pick.yml
-    with:
-      jobs: fuzz
+  fuzz-gate:
+    runs-on: antimatter-vps-gate
+    timeout-minutes: 1
+    outputs: { runner: "${{ steps.pick.outputs.runner }}" }
+    steps: [{ id: pick, run: runner-gate pick linux-x64 }]
 
   fuzz:
     name: fuzz (explorer)
-    needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.runners || '{}')['fuzz'] || 'ubuntu-24.04' }}
+    needs: fuzz-gate
+    runs-on: ${{ needs.fuzz-gate.outputs.runner }}
     timeout-minutes: 61
     steps:
       - uses: actions/checkout@v4

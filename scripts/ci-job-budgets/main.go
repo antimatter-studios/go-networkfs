@@ -22,6 +22,7 @@ type budget struct {
 	Provisional            bool                `json:"provisional,omitempty"`
 	ReusableWorkflow       string              `json:"reusable_workflow,omitempty"`
 	ReusableTimeoutMinutes int                 `json:"reusable_timeout_minutes,omitempty"`
+	Gate                   bool                `json:"gate,omitempty"`
 }
 
 type evidence struct {
@@ -33,6 +34,7 @@ type evidence struct {
 type workflowJob struct {
 	Timeout int    `yaml:"timeout-minutes"`
 	Uses    string `yaml:"uses"`
+	RunsOn  string `yaml:"runs-on"`
 }
 
 func minutes(entry budget) (int, error) {
@@ -68,7 +70,32 @@ func minutes(entry budget) (int, error) {
 	return result, nil
 }
 
+// gateRunner is the runner gate's own label. A gate job there runs one
+// `runner-gate pick` and nothing else, and the gate's design fixes its limit
+// at one minute: it is a contract with the runner host, not a measured
+// workload, so it is recorded as `"gate": true` rather than as samples.
+const gateRunner = "antimatter-vps-gate"
+
+func checkGate(job workflowJob, entry budget) error {
+	if entry.Provisional || len(entry.Samples) != 0 || entry.ReusableWorkflow != "" || entry.ReusableTimeoutMinutes != 0 {
+		return fmt.Errorf("a gate job's budget is fixed at one minute and carries no measurements")
+	}
+	if job.RunsOn != gateRunner {
+		return fmt.Errorf("only a job on %s has a gate budget, not one on %q", gateRunner, job.RunsOn)
+	}
+	if job.Timeout != 1 {
+		return fmt.Errorf("timeout-minutes is %d; a gate job's budget is 1", job.Timeout)
+	}
+	return nil
+}
+
 func checkJob(root string, job workflowJob, entry budget) error {
+	if entry.Gate {
+		return checkGate(job, entry)
+	}
+	if job.RunsOn == gateRunner {
+		return fmt.Errorf("a job on %s is a gate job: record it as \"gate\": true", gateRunner)
+	}
 	expected, err := minutes(entry)
 	if err != nil {
 		return err

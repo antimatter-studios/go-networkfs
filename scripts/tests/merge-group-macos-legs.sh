@@ -16,8 +16,8 @@
 # says which gating jobs never ran a step, so a missing runner is not read as
 # a broken change.
 #
-# This guard evaluates the matrix expression of both jobs for both events,
-# and executes `ci-ok`'s own step with `gh` replaced by a stub that answers a
+# This guard reads the job-level condition of each platform's jobs, and
+# executes `ci-ok`'s own step with `gh` replaced by a stub that answers a
 # run's jobs.
 #
 #   bash scripts/tests/merge-group-macos-legs.sh
@@ -28,55 +28,44 @@ WF="$ROOT/.github/workflows/ci.yml"
 fails=0
 fail() { fails=$((fails + 1)); printf '  FAIL  %s\n' "$1"; [ $# -gt 1 ] && printf '        %s\n' "$2"; }
 
-# --- 1. The matrix: Ubuntu alone for a merge group, both for the rest. -------
+# --- 1. The platforms: Ubuntu alone for a merge group, both for the rest. ----
+#
+# Each platform is its own job with its own gate (a gate answers one runner
+# class, so a matrix over os cannot share one). The macOS jobs and their gates
+# carry a job-level `if:` that is false for a merge group; the Ubuntu jobs
+# carry none beyond the changes job's answer.
 
-# matrix_os <job>: the value of `os:` under that job's `matrix:`.
-matrix_os() {
+# job_if <job>: the job-level `if:` of that job, or nothing.
+job_if() {
     awk -v job="$1" '
         $0 ~ "^  " job ":[[:space:]]*$" { injob = 1; next }
         injob && /^  [^ ]/ { exit }
-        injob && /^      matrix:[[:space:]]*$/ { inmatrix = 1; next }
-        inmatrix && /^        os:/ { sub(/^        os:[[:space:]]*/, ""); print; exit }
+        injob && /^    if:/ { sub(/^    if:[[:space:]]*/, ""); print; exit }
     ' "$WF"
 }
 
-# evaluate <value> <event>: the OS list the value gives, one per line, sorted.
-# Two shapes are understood: a literal flow list, and
-#   ${{ fromJSON(github.event_name == '<event>' && '<json>' || '<json>') }}
-# Anything else is refused rather than guessed at.
-evaluate() {
-    local value="$1" event="$2" re
-    re="^\\$\\{\\{ *fromJSON\\( *github\\.event_name *== *'([a-z_]+)' *&& *'([^']*)' *\\|\\| *'([^']*)' *\\) *\\}\\}$"
-    if [[ "$value" =~ ^\[(.*)\]$ ]]; then
-        echo "${BASH_REMATCH[1]}" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | sort
-    elif [[ "$value" =~ $re ]]; then
-        if [ "$event" = "${BASH_REMATCH[1]}" ]; then
-            echo "${BASH_REMATCH[2]}" | jq -r '.[]' | sort
-        else
-            echo "${BASH_REMATCH[3]}" | jq -r '.[]' | sort
-        fi
-    else
-        return 1
-    fi
-}
+has_job() { grep -Eq "^  $1:[[:space:]]*\$" "$WF"; }
 
-both="$(printf 'macos-latest\nubuntu-latest\n')"
-for job in test build-archives; do
-    value="$(matrix_os "$job")"
-    if [ -z "$value" ]; then
-        fail "$job has no matrix os in $WF"
+path_gate="needs.changes.outputs.code == 'true'"
+for job in test-linux test-linux-gate archives-linux archives-linux-gate; do
+    if ! has_job "$job"; then
+        fail "$WF has no job $job"
         continue
     fi
-    for event in merge_group pull_request push; do
-        if ! got="$(evaluate "$value" "$event")"; then
-            fail "$job matrix os is in a shape this guard cannot evaluate" "$value"
-            break
-        fi
-        if [ "$event" = merge_group ]; then want=ubuntu-latest; else want="$both"; fi
-        if [ "$got" != "$want" ]; then
-            fail "$job matrix for $event is not $(echo "$want" | tr '\n' ' ')" "got: $(echo "$got" | tr '\n' ' ')"
-        fi
-    done
+    got="$(job_if "$job")"
+    if [ "$got" != "$path_gate" ]; then
+        fail "$job must run on every event its changes job asks for" "if: $got"
+    fi
+done
+for job in test-macos test-macos-gate archives-macos archives-macos-gate; do
+    if ! has_job "$job"; then
+        fail "$WF has no job $job"
+        continue
+    fi
+    got="$(job_if "$job")"
+    if [ "$got" != "$path_gate && github.event_name != 'merge_group'" ]; then
+        fail "$job must be skipped in a merge group, and otherwise run when the changes job asks" "if: $got"
+    fi
 done
 
 # --- 2. ci-ok names a job that never started. ---------------------------------
@@ -115,7 +104,8 @@ cat "$JOBS_JSON"
 SH
 chmod +x "$sandbox/bin/gh"
 
-# run_gate <needs-json> <gh-fails>: the gate, with the variables GitHub sets.
+# run_gate <needs-json> <gh-fails> [event]: the gate, with the variables GitHub
+# sets.
 run_gate() {
     : > "$sandbox/calls"
     env -i \
@@ -130,6 +120,7 @@ run_gate() {
         GITHUB_RUN_ATTEMPT=1 \
         NEEDS="$1" \
         CODE=true \
+        EVENT="${3:-pull_request}" \
         bash -c "$gate_script" >"$sandbox/out" 2>&1
 }
 
@@ -162,6 +153,23 @@ if run_gate "$failing" 1; then
 fi
 if ! run_gate "$passing" 1; then
     fail "ci-ok failed a passing gate" "$(tail -3 "$sandbox/out")"
+fi
+
+# 2c. A merge group skips the macOS jobs, and only those, only there.
+merge_ok='{"test-linux":{"result":"success"},"test-macos-gate":{"result":"skipped"},"test-macos":{"result":"skipped"},"archives-macos-gate":{"result":"skipped"},"archives-macos":{"result":"skipped"}}'
+if ! run_gate "$merge_ok" 1 merge_group; then
+    fail "ci-ok failed a merge group that skipped only the macOS jobs" "$(tail -3 "$sandbox/out")"
+fi
+if run_gate "$merge_ok" 1 pull_request; then
+    fail "ci-ok passed a pull request whose macOS jobs were skipped"
+fi
+linux_skipped='{"test-linux":{"result":"skipped"},"test-macos":{"result":"skipped"}}'
+if run_gate "$linux_skipped" 1 merge_group; then
+    fail "ci-ok passed a merge group whose Linux test job was skipped"
+fi
+macos_failed='{"test-linux":{"result":"success"},"test-macos":{"result":"failure"}}'
+if run_gate "$macos_failed" 1 merge_group; then
+    fail "ci-ok passed a merge group whose macOS job failed"
 fi
 
 exit "$fails"

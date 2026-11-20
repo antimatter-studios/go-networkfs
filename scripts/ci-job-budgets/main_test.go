@@ -79,6 +79,12 @@ func TestCheckJob(t *testing.T) {
 		{name: "local reusable missing callee", job: workflowJob{Uses: local}, entry: localReusable, invalid: true},
 		{name: "local reusable caller timeout", job: workflowJob{Uses: local, Timeout: 5}, entry: localReusable, called: bounded, invalid: true},
 		{name: "local reusable unrecorded", job: workflowJob{Uses: local}, entry: measured(10), called: bounded, invalid: true},
+		{name: "gate", job: workflowJob{Timeout: 1, RunsOn: "antimatter-vps-gate"}, entry: budget{Gate: true}},
+		{name: "gate given a measured budget", job: workflowJob{Timeout: 1, RunsOn: "antimatter-vps-gate"}, entry: measured(3), invalid: true},
+		{name: "gate timeout widened", job: workflowJob{Timeout: 5, RunsOn: "antimatter-vps-gate"}, entry: budget{Gate: true}, invalid: true},
+		{name: "gate budget on a hosted job", job: workflowJob{Timeout: 1, RunsOn: "ubuntu-24.04"}, entry: budget{Gate: true}, invalid: true},
+		{name: "gate budget with samples", job: workflowJob{Timeout: 1, RunsOn: "antimatter-vps-gate"}, entry: budget{Gate: true, Samples: measured(3).Samples}, invalid: true},
+		{name: "gate budget provisional", job: workflowJob{Timeout: 1, RunsOn: "antimatter-vps-gate"}, entry: budget{Gate: true, Provisional: true}, invalid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
