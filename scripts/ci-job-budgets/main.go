@@ -22,6 +22,7 @@ type budget struct {
 	Provisional            bool                `json:"provisional,omitempty"`
 	ReusableWorkflow       string              `json:"reusable_workflow,omitempty"`
 	ReusableTimeoutMinutes int                 `json:"reusable_timeout_minutes,omitempty"`
+	Gate                   bool                `json:"gate,omitempty"`
 }
 
 type evidence struct {
@@ -33,6 +34,7 @@ type evidence struct {
 type workflowJob struct {
 	Timeout int    `yaml:"timeout-minutes"`
 	Uses    string `yaml:"uses"`
+	RunsOn  string `yaml:"runs-on"`
 }
 
 func minutes(entry budget) (int, error) {
