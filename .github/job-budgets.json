@@ -1,23 +1,111 @@
 {
   "measured_at": "2026-11-16T16:57:11.858826+00:00",
-  "method": "Ten most recent successful runs per workflow across branches, plus the antimatter-vps runs of a job the runner gate may place there. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants and runners averaged independently; a job's budget is the largest, because the pick is made per run and the budget must cover whichever runner it gets. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets, with one reviewed exception recorded here: a job killed at its budget while every one of its steps had already concluded success (run 44308179842, test and lint on antimatter-vps-linux-x64) is not a hang -- its elapsed time is a floor for that runner, and the budget is the formula applied to it. Reusable timeout verified in the called workflow at its exact SHA; a reusable workflow in this repository is verified in place, at the commit the caller lands on.",
+  "method": "Ten most recent successful runs per workflow across branches, plus the antimatter-vps runs of a job the runner gate may place there. Successful jobs only; elapsed time from first executed step start to last executed step completion, excluding runner queue time. Matrix variants and runners averaged independently; a job's budget is the largest, because the pick is made per run and the budget must cover whichever runner it gets. max(5, ceil(mean_seconds * 1.5 / 60)). Failed, cancelled and skipped jobs never increase budgets, with one reviewed exception recorded here: a job killed at its budget while every one of its steps had already concluded success (run 44308179842, test and lint on antimatter-vps-linux-x64) is not a hang -- its elapsed time is a floor for that runner, and the budget is the formula applied to it. Reusable timeout verified in the called workflow at its exact SHA; a reusable workflow in this repository is verified in place, at the commit the caller lands on. A gate job (`<job>-gate`, on antimatter-vps-gate) runs one `runner-gate pick` and nothing else; the runner gate's design fixes its limit at one minute, so it is recorded as \"gate\": true with no samples, and the guard holds it to timeout-minutes: 1 on that runner alone. test and build-archives became one job per platform (test-linux, test-macos, archives-linux, archives-macos), each keeping its platform's samples from the matrix job.",
   "workflows": {
     "ci.yml": {
-      "runner-changes": {
+      "archives-linux": {
         "samples": {
-          "pick runners": [
+          "c-archive builds (ubuntu-latest)": [
             {
-              "run_id": 44278573367,
-              "seconds": 4
+              "run_id": 43876553785,
+              "seconds": 45
             },
             {
-              "run_id": 44278573367,
-              "seconds": 11
+              "run_id": 43876635012,
+              "seconds": 39
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 58
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 39
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 44
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 34
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 30
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 40
+            }
+          ],
+          "c-archive builds (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 222
             }
           ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
+        }
+      },
+      "archives-linux-gate": {
+        "gate": true
+      },
+      "archives-macos": {
+        "samples": {
+          "c-archive builds (macos-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 45
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 46
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 59
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 30
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 16
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 50
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 24
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 43
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 38
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 62
+            }
+          ]
+        }
+      },
+      "archives-macos-gate": {
+        "gate": true
       },
       "changes": {
         "samples": {
@@ -65,179 +153,57 @@
           ]
         }
       },
-      "runner-test": {
-        "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
+      "changes-gate": {
+        "gate": true
       },
-      "runner-integration": {
+      "ci-ok": {
         "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
-      },
-      "runner-archives": {
-        "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
-      },
-      "runner-lint": {
-        "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
-      },
-      "runner-vulncheck": {
-        "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        },
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
-      },
-      "test": {
-        "samples": {
-          "test (ubuntu-latest)": [
+          "ci-ok": [
             {
               "run_id": 43876553785,
-              "seconds": 53
+              "seconds": 0
             },
             {
               "run_id": 43876635012,
-              "seconds": 68
+              "seconds": 1
             },
             {
               "run_id": 43876356114,
-              "seconds": 69
+              "seconds": 1
             },
             {
               "run_id": 43876356505,
-              "seconds": 60
+              "seconds": 1
             },
             {
               "run_id": 43876356047,
-              "seconds": 66
+              "seconds": 0
             },
             {
               "run_id": 43876616534,
-              "seconds": 69
+              "seconds": 1
             },
             {
               "run_id": 43876635080,
-              "seconds": 70
+              "seconds": 0
             },
             {
               "run_id": 43876563881,
-              "seconds": 58
+              "seconds": 1
             },
             {
               "run_id": 43876671533,
-              "seconds": 77
+              "seconds": 0
             },
             {
               "run_id": 43876357988,
-              "seconds": 73
-            }
-          ],
-          "test (macos-latest)": [
-            {
-              "run_id": 43876553785,
-              "seconds": 115
-            },
-            {
-              "run_id": 43876635012,
-              "seconds": 55
-            },
-            {
-              "run_id": 43876356114,
-              "seconds": 96
-            },
-            {
-              "run_id": 43876356505,
-              "seconds": 102
-            },
-            {
-              "run_id": 43876356047,
-              "seconds": 122
-            },
-            {
-              "run_id": 43876616534,
-              "seconds": 106
-            },
-            {
-              "run_id": 43876635080,
-              "seconds": 79
-            },
-            {
-              "run_id": 43876563881,
-              "seconds": 102
-            },
-            {
-              "run_id": 43876671533,
-              "seconds": 95
-            },
-            {
-              "run_id": 43876357988,
-              "seconds": 90
-            }
-          ],
-          "test (antimatter-vps-linux-x64)": [
-            {
-              "run_id": 44308179842,
-              "seconds": 303
+              "seconds": 0
             }
           ]
         }
+      },
+      "ci-ok-gate": {
+        "gate": true
       },
       "integration": {
         "samples": {
@@ -284,6 +250,9 @@
             }
           ]
         }
+      },
+      "integration-gate": {
+        "gate": true
       },
       "lint": {
         "samples": {
@@ -337,6 +306,113 @@
           ]
         }
       },
+      "lint-gate": {
+        "gate": true
+      },
+      "test-linux": {
+        "samples": {
+          "test (ubuntu-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 53
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 68
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 69
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 60
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 66
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 69
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 70
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 58
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 77
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 73
+            }
+          ],
+          "test (antimatter-vps-linux-x64)": [
+            {
+              "run_id": 44308179842,
+              "seconds": 303
+            }
+          ]
+        }
+      },
+      "test-linux-gate": {
+        "gate": true
+      },
+      "test-macos": {
+        "samples": {
+          "test (macos-latest)": [
+            {
+              "run_id": 43876553785,
+              "seconds": 115
+            },
+            {
+              "run_id": 43876635012,
+              "seconds": 55
+            },
+            {
+              "run_id": 43876356114,
+              "seconds": 96
+            },
+            {
+              "run_id": 43876356505,
+              "seconds": 102
+            },
+            {
+              "run_id": 43876356047,
+              "seconds": 122
+            },
+            {
+              "run_id": 43876616534,
+              "seconds": 106
+            },
+            {
+              "run_id": 43876635080,
+              "seconds": 79
+            },
+            {
+              "run_id": 43876563881,
+              "seconds": 102
+            },
+            {
+              "run_id": 43876671533,
+              "seconds": 95
+            },
+            {
+              "run_id": 43876357988,
+              "seconds": 90
+            }
+          ]
+        }
+      },
+      "test-macos-gate": {
+        "gate": true
+      },
       "vulncheck": {
         "samples": {
           "govulncheck": [
@@ -389,153 +465,11 @@
           ]
         }
       },
-      "build-archives": {
-        "samples": {
-          "c-archive builds (ubuntu-latest)": [
-            {
-              "run_id": 43876553785,
-              "seconds": 45
-            },
-            {
-              "run_id": 43876635012,
-              "seconds": 39
-            },
-            {
-              "run_id": 43876356114,
-              "seconds": 58
-            },
-            {
-              "run_id": 43876356505,
-              "seconds": 39
-            },
-            {
-              "run_id": 43876356047,
-              "seconds": 44
-            },
-            {
-              "run_id": 43876616534,
-              "seconds": 38
-            },
-            {
-              "run_id": 43876635080,
-              "seconds": 34
-            },
-            {
-              "run_id": 43876563881,
-              "seconds": 30
-            },
-            {
-              "run_id": 43876671533,
-              "seconds": 38
-            },
-            {
-              "run_id": 43876357988,
-              "seconds": 40
-            }
-          ],
-          "c-archive builds (macos-latest)": [
-            {
-              "run_id": 43876553785,
-              "seconds": 45
-            },
-            {
-              "run_id": 43876635012,
-              "seconds": 46
-            },
-            {
-              "run_id": 43876356114,
-              "seconds": 59
-            },
-            {
-              "run_id": 43876356505,
-              "seconds": 30
-            },
-            {
-              "run_id": 43876356047,
-              "seconds": 16
-            },
-            {
-              "run_id": 43876616534,
-              "seconds": 50
-            },
-            {
-              "run_id": 43876635080,
-              "seconds": 24
-            },
-            {
-              "run_id": 43876563881,
-              "seconds": 43
-            },
-            {
-              "run_id": 43876671533,
-              "seconds": 38
-            },
-            {
-              "run_id": 43876357988,
-              "seconds": 62
-            }
-          ],
-          "c-archive builds (antimatter-vps-linux-x64)": [
-            {
-              "run_id": 44308179842,
-              "seconds": 222
-            }
-          ]
-        }
-      },
-      "ci-ok": {
-        "samples": {
-          "ci-ok": [
-            {
-              "run_id": 43876553785,
-              "seconds": 0
-            },
-            {
-              "run_id": 43876635012,
-              "seconds": 1
-            },
-            {
-              "run_id": 43876356114,
-              "seconds": 1
-            },
-            {
-              "run_id": 43876356505,
-              "seconds": 1
-            },
-            {
-              "run_id": 43876356047,
-              "seconds": 0
-            },
-            {
-              "run_id": 43876616534,
-              "seconds": 1
-            },
-            {
-              "run_id": 43876635080,
-              "seconds": 0
-            },
-            {
-              "run_id": 43876563881,
-              "seconds": 1
-            },
-            {
-              "run_id": 43876671533,
-              "seconds": 0
-            },
-            {
-              "run_id": 43876357988,
-              "seconds": 0
-            }
-          ]
-        }
+      "vulncheck-gate": {
+        "gate": true
       }
     },
     "fuzz.yml": {
-      "runners": {
-        "provisional": true,
-        "reusable_workflow": "./.github/workflows/runner-pick.yml",
-        "reusable_timeout_minutes": 5
-      },
       "fuzz": {
         "samples": {
           "fuzz (explorer)": [
@@ -581,22 +515,9 @@
             }
           ]
         }
-      }
-    },
-    "runner-pick.yml": {
-      "pick": {
-        "samples": {
-          "pick runners": [
-            {
-              "run_id": 44278573367,
-              "seconds": 4
-            },
-            {
-              "run_id": 44278573367,
-              "seconds": 11
-            }
-          ]
-        }
+      },
+      "fuzz-gate": {
+        "gate": true
       }
     },
     "branch-reap.yml": {

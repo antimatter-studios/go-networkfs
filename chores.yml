@@ -361,6 +361,14 @@ tasks:
     # rust-fs-core's ci-gate, run in place from ../rust-fs-core as every
     # repository in the family runs it -- this file keeps no copy, and
     # family-check fails if one appears (`chore siblings` puts core there).
+    #
+    # CI_GATE_NON_GATING names the jobs that carry an `if:` other than the
+    # changes job's answer. ci-ok-gate only picks ci-ok's runner and runs
+    # `if: always()` like ci-ok. The macOS jobs and their gates are skipped in
+    # a merge group (#120); ci-ok still needs them and accepts that skip there
+    # and nowhere else.
+    env:
+      CI_GATE_NON_GATING: ci-ok-gate test-macos-gate test-macos archives-macos-gate archives-macos
     cmds:
       - bash ../rust-fs-core/scripts/family-check.sh
       - bash ../rust-fs-core/scripts/ci-gate.sh

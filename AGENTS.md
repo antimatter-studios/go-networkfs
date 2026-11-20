@@ -278,9 +278,16 @@ chore servers:up      # bring the test servers up
 chore servers:down
 ```
 
-CI runs `test`, `integration`, `lint`, `vulncheck` and `build-archives`, and
-`ci-ok`, the aggregate that needs all of them. `.github-guard` requires
-**`ci-ok`** alone — see the note below.
+CI runs `test-linux`, `test-macos`, `integration`, `lint`, `vulncheck`,
+`archives-linux` and `archives-macos`, and `ci-ok`, the aggregate that needs
+all of them. `.github-guard` requires **`ci-ok`** alone — see the note below.
+
+Every job takes its runner from its own `<job>-gate` job, which runs on
+`antimatter-vps-gate` and answers an antimatter-vps runner while one is free,
+otherwise GitHub's. A new job gets a gate in the same change:
+`scripts/tests/runner-gate-jobs.sh` (`chore test:scripts`) refuses a job
+without one, and `go run ./scripts/ci-job-budgets` wants its `"gate": true`
+entry in `.github/job-budgets.json`.
 
 ## Traps that have already cost time
 
