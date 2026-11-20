@@ -21,7 +21,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-EXPECTED_CHECKS=14
+EXPECTED_CHECKS=18
 checks=0
 fails=0
 
@@ -64,10 +64,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# --- Six published ports, held open for the whole file. ---------------------
+# --- Published ports, held open for the whole file. -------------------------
 python3 -c "import os, socket, sys, time
 held = []
-for _ in range(6):
+for _ in range(8):
     s = socket.socket()
     s.bind(('127.0.0.1', 0))
     s.listen(64)
@@ -83,9 +83,9 @@ for _ in $(seq 1 50); do
     [ -f "$sandbox/ports" ] && break
     sleep 0.1
 done
-read -r port_sftp port_squid port_samba port_mockapi port_sabredav port_lighttpd \
+read -r port_sftp port_squid port_samba port_mockapi port_sabredav port_lighttpd port_s3 port_ftp \
     < "$sandbox/ports" || true
-if [ -n "${port_lighttpd:-}" ]; then ok; else
+if [ -n "${port_ftp:-}" ]; then ok; else
     fail "the fixture's published ports are bound"
     exit 1
 fi
@@ -102,7 +102,19 @@ previous=""
 count() { ls "$1" | wc -l | tr -d ' '; }
 call() { printf '%s\n' "$*" >> "$FAKE_DIR/calls"; }
 case "$1" in
-    info|image|rm|logs) exit 0 ;;
+    info|rm|logs) exit 0 ;;
+    image)
+        # Each invocation of servers.sh starts with an empty image store.
+        [ "$2" = inspect ] && grep -Fxq -- "pull-end $3" "$FAKE_DIR/calls" 2>/dev/null
+        exit
+        ;;
+    pull)
+        image="${@: -1}"
+        call "pull-start $image"
+        sleep "${FAKE_PULL_DELAY:-0}"
+        call "pull-end $image"
+        exit 0
+        ;;
     inspect) echo true; exit 0 ;;
     network)
         call "network $2"
@@ -110,7 +122,7 @@ case "$1" in
         exit
         ;;
     build)
-        call build
+        call build-start
         tag=""
         while [ $# -gt 0 ]; do
             [ "$1" = -t ] && { tag="$2"; break; }
@@ -132,6 +144,7 @@ case "$1" in
         exit 0
         ;;
     run)
+        call run-start
         # The mock server's compile is a throwaway container, not a server.
         case " $* " in *" --name "*) ;; *) exit 0 ;; esac
         call "run $*"
@@ -153,7 +166,12 @@ case "$1" in
     *) echo "fake docker: unexpected subcommand '$1'" >&2; exit 97 ;;
 esac
 STUB
-chmod +x "$sandbox/bin/docker"
+cat > "$sandbox/bin/curl" <<'STUB'
+#!/usr/bin/env bash
+# The bound port stands in for S3, so answer its health check here.
+exit 0
+STUB
+chmod +x "$sandbox/bin/docker" "$sandbox/bin/curl"
 
 NAMES="sftp squid samba mockapi sabredav lighttpd"
 
@@ -172,6 +190,8 @@ run_up() {
             SFTP_PORT="$port_sftp" PROXY_PORT="$port_squid" \
             SMB_PORT="$port_samba" MOCK_PORT="$port_mockapi" \
             DAV_SABRE_PORT="$port_sabredav" DAV_LIGHTTPD_PORT="$port_lighttpd" \
+            S3_PORT="$port_s3" FTP_PORT="$port_ftp" \
+            S3_IMAGE=fixture/s3:1 FTP_IMAGE=fixture/ftp:1 MOCK_BUILD_IMAGE=fixture/mock-compiler:1 \
             "$@" scripts/servers.sh up $NAMES
     ) > "$sandbox/stdout" 2> "$sandbox/stderr"
     rc=$?
@@ -196,7 +216,7 @@ check_equal "no more than four are in flight by default" 4 "$(peak_in_flight)"
 
 # --- The network exists before anything needs it. ---------------------------
 check_equal "the network is created before the first server" \
-    "network create" "$(grep -v 'network inspect' "$sandbox/state/calls" | head -1)"
+    "network create" "$(awk '/^(network create|build-start|run-start)/ {print; exit}' "$sandbox/state/calls")"
 check_equal "every container joins the test network" 6 \
     "$(grep -c -- '--network go-networkfs-test-fixture ' "$sandbox/state/calls")"
 
@@ -213,6 +233,30 @@ check_equal "one server failing fails the whole command" 1 "$rc"
 check_contains "the failing server's own error is printed" \
     "go-networkfs-sftp-fixture would not start" "$err"
 check_lacks "the failed server is not reported ready" "sftp     127.0.0.1" "$out"
+
+# --- All requested images are ready before parallel builds and runs. -------
+# Appends to calls record the event order. Delay the cold pulls so the old
+# workers' simultaneous pulls are visible without relying on elapsed times.
+NAMES="s3 ftp $NAMES" run_up SERVERS_UP_JOBS=8 FAKE_PULL_DELAY=0.3
+check_equal "the requested servers start with a cold image store" 0 "$rc"
+calls="$sandbox/state/calls"
+check_equal "server image pulls never overlap" "" "$(awk '
+    /^pull-start / && active {print "overlapping pulls"; exit}
+    /^pull-start / {active = 1}
+    /^pull-end / {active = 0}
+' "$calls")"
+
+required_images=(alpine:3.20.10 alpine:3.21 composer:2.8.12 fixture/ftp:1
+                 fixture/mock-compiler:1 fixture/s3:1 gcr.io/distroless/static-debian12
+                 php:8.3.29-cli-alpine)
+check_equal "each required image is pulled exactly once" \
+    "$(printf '%s\n' "${required_images[@]}" | LC_ALL=C sort)" \
+    "$(awk '/^pull-end / {print $2}' "$calls" | LC_ALL=C sort)"
+check_equal "every required pull finishes before any build or run starts" \
+    "${#required_images[@]}" "$(awk '
+        /^(build-start|run-start)$/ {print finished + 0; exit}
+        /^pull-end / {finished++}
+    ' "$calls")"
 
 # --- A limit that could never start anything is refused. --------------------
 run_up SERVERS_UP_JOBS=0
